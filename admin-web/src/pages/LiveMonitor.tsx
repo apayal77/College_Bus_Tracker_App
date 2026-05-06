@@ -5,7 +5,7 @@ import { Radio } from 'lucide-react';
 import { io, Socket } from 'socket.io-client';
 import LiveTrackingMap from '../components/LiveTrackingMap';
 
-const SOCKET_URL = 'http://localhost:5000';
+const SOCKET_URL = 'https://college-bus-tracker-app.onrender.com';
 
 interface BusUpdate {
   routeId: string;

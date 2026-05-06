@@ -5,7 +5,7 @@ import { Users, Map as MapIcon, Bus, AlertTriangle, Radio } from 'lucide-react';
 import { io, Socket } from 'socket.io-client';
 import LiveTrackingMap from '../components/LiveTrackingMap';
 
-const SOCKET_URL = 'http://localhost:5000'; // Admin web runs on the same machine as backend
+const SOCKET_URL = 'https://college-bus-tracker-app.onrender.com'; // Admin web runs on the same machine as backend
 
 interface BusUpdate {
   routeId: string;

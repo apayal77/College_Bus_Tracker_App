@@ -1,4 +1,4 @@
-const BASE_URL = 'http://localhost:5000/api';
+const BASE_URL = 'https://college-bus-tracker-app.onrender.com/api';
 
 export const apiService = {
   // Auth
