@@ -25,7 +25,9 @@ const getDistance = (lat1, lon1, lat2, lon2) => {
 
 const initSocket = (server) => {
   io = new Server(server, {
-    cors: { origin: '*', methods: ['GET', 'POST'] },
+    cors: {
+      origin: "*",
+    },
     pingInterval: 10000,
     pingTimeout: 5000,
   });

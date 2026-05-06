@@ -14,7 +14,9 @@ const app = express();
 const server = http.createServer(app);
 
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: "*",
+}));
 app.use(express.json());
 
 // Socket setup
@@ -33,6 +35,6 @@ app.use('/api/trips', require('./routes/tripRoutes'));
 const PORT = process.env.PORT || 5000;
 
 server.listen(PORT, () => {
-  console.log(`Backend server running on port ${PORT}`);
+  console.log(`Server running on port ${PORT}`);
 });
 

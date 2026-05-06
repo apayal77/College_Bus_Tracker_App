@@ -1,7 +1,6 @@
 {
   "name": "bus-tracker-backend",
   "version": "1.0.0",
-  "description": "Backend for College Bus Tracker",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
