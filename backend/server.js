@@ -23,6 +23,10 @@ app.use(express.json());
 initSocket(server);
 
 // Basic Health Check Route
+app.get('/', (req, res) => {
+  res.send('Backend is running 🚀');
+});
+
 app.get('/api/health', (req, res) => {
   res.json({ status: 'OK', message: 'Bus Tracker API is healthy' });
 });
