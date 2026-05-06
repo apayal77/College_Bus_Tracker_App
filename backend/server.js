@@ -2,8 +2,8 @@ const express = require('express');
 const http = require('http');
 const cors = require('cors');
 const dotenv = require('dotenv');
-const { initFirebase } = require('./config/firebase');
-const { initSocket } = require('./socket');
+const { initFirebase } = require('./src/config/firebase');
+const { initSocket } = require('./src/socket');
 
 dotenv.config();
 
@@ -28,13 +28,12 @@ app.get('/api/health', (req, res) => {
 });
 
 // Routes
-app.use('/api/users', require('./routes/userRoutes'));
-app.use('/api/routes', require('./routes/routeRoutes'));
-app.use('/api/trips', require('./routes/tripRoutes'));
+app.use('/api/users', require('./src/routes/userRoutes'));
+app.use('/api/routes', require('./src/routes/routeRoutes'));
+app.use('/api/trips', require('./src/routes/tripRoutes'));
 
 const PORT = process.env.PORT || 5000;
 
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
-

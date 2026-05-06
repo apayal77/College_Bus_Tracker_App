@@ -1,55 +1,34 @@
 const admin = require('firebase-admin');
 const dotenv = require('dotenv');
 const path = require('path');
-const fs = require('fs');
 
-// Look for .env in the folder where the command is running (backend root)
-const envPath = path.join(process.cwd(), '.env');
-dotenv.config({ path: envPath });
-
-// BRUTE FORCE FALLBACK: If dotenv failed, read the file manually
-if (!process.env.FIREBASE_SERVICE_ACCOUNT_PATH && fs.existsSync(envPath)) {
-  const content = fs.readFileSync(envPath, 'utf8');
-  const lines = content.split('\n');
-  for (let line of lines) {
-    line = line.trim();
-    // Ignore comments and empty lines
-    if (line.startsWith('#') || !line.includes('=')) continue;
-    
-    const [key, ...valueParts] = line.split('=');
-    if (key.trim() === 'FIREBASE_SERVICE_ACCOUNT_PATH') {
-      process.env.FIREBASE_SERVICE_ACCOUNT_PATH = valueParts.join('=').trim();
-      break;
-    }
-  }
-}
-
-
+// Load environment variables
+dotenv.config({ path: path.join(process.cwd(), '.env') });
 
 const initFirebase = () => {
-  const serviceAccountPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH;
-
-  if (serviceAccountPath) {
+  if (!admin.apps.length) {
     try {
-      const resolvedPath = path.resolve(process.cwd(), serviceAccountPath);
-      console.log(`Loading service account from: ${resolvedPath}`);
-      
-      const fileContent = fs.readFileSync(resolvedPath, 'utf8');
-      const serviceAccount = JSON.parse(fileContent);
-      
+      const projectId = process.env.FIREBASE_PROJECT_ID;
+      const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
+      const privateKey = process.env.FIREBASE_PRIVATE_KEY;
+
+      if (!projectId || !clientEmail || !privateKey) {
+        throw new Error('Missing Firebase environment variables (PROJECT_ID, CLIENT_EMAIL, or PRIVATE_KEY)');
+      }
+
       admin.initializeApp({
-        credential: admin.credential.cert(serviceAccount)
+        credential: admin.credential.cert({
+          projectId: projectId,
+          clientEmail: clientEmail,
+          privateKey: privateKey.replace(/\\n/g, '\n'),
+        }),
       });
 
-      console.log('Firebase Admin initialized successfully.');
+      console.log('Firebase Admin initialized successfully using environment variables.');
     } catch (error) {
       console.error('Failed to initialize Firebase Admin:', error.message);
     }
-
-  } else {
-    console.warn('WARNING: FIREBASE_SERVICE_ACCOUNT_PATH not set. Firebase features will not function.');
   }
-
   return admin;
 };
 
