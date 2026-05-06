@@ -33,7 +33,9 @@ const LiveMonitor = () => {
 
     fetchRouteNames();
 
-    socketRef.current = io(SOCKET_URL);
+    socketRef.current = io(SOCKET_URL, {
+      transports: ['websocket'],
+    });
     socketRef.current.emit('joinRoute', 'admin');
 
     socketRef.current.on('allBusesUpdate', (data: BusUpdate) => {

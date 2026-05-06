@@ -58,7 +58,9 @@ const Dashboard = () => {
     fetchData();
 
     // Socket Integration
-    socketRef.current = io(SOCKET_URL);
+    socketRef.current = io(SOCKET_URL, {
+      transports: ['websocket'],
+    });
     socketRef.current.emit('joinRoute', 'admin'); // Join admin room
 
     socketRef.current.on('allBusesUpdate', (data: BusUpdate) => {

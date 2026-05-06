@@ -1,6 +1,6 @@
 import { io, Socket } from 'socket.io-client';
 
-const SOCKET_URL = 'http://172.16.68.126:5000'; 
+const SOCKET_URL = 'https://college-bus-tracker-app.onrender.com'; 
 let socket: Socket | null = null;
 
 export const socketService = {
