@@ -29,15 +29,29 @@ const ManageUsers = ({ role }: { role: 'student' | 'driver' }) => {
   const handleAddUser = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
+      // Clean and format phone number to match app expectations (+91 prefix)
+      let cleanPhone = formData.phone.replace(/\s+/g, '');
+      if (!cleanPhone.startsWith('+')) {
+        // If it starts with 91 but no +, add +
+        if (cleanPhone.startsWith('91') && cleanPhone.length === 12) {
+          cleanPhone = '+' + cleanPhone;
+        } else {
+          // Assume it's a 10 digit number and add +91
+          cleanPhone = '+91' + cleanPhone.replace(/^0/, '');
+        }
+      }
+
       await addDoc(collection(db, 'users'), {
         ...formData,
+        phone: cleanPhone,
         role,
         createdAt: new Date().toISOString()
       });
       setShowModal(false);
       setFormData({ name: '', phone: '', routeAssigned: '' });
-    } catch (error) {
-      alert('Error adding user');
+    } catch (error: any) {
+      console.error('Error adding user:', error);
+      alert('Error adding user: ' + (error.message || 'Unknown error'));
     }
   };
 
