@@ -70,18 +70,37 @@ const initSocket = (server) => {
 
         // Proximity check for "Bus Near Stop" (within 500m)
         state.stops.forEach(async (stop) => {
-          const dist = getDistance(latitude, longitude, stop.latitude, stop.longitude);
-          if (dist < 500) {
-             const notificationKey = `${routeId}_${stop.name}`;
-             if (!notifiedStudents.has(notificationKey)) {
-                sendNotificationToRoute(
-                  routeId, 
-                  'Bus Nearby! 🚌', 
-                  `The bus is approaching ${stop.name}. Be ready!`
-                );
-                notifiedStudents.add(notificationKey);
-                setTimeout(() => notifiedStudents.delete(notificationKey), 30 * 60 * 1000);
-             }
+          let stopLat, stopLng, stopName;
+          
+          if (typeof stop === 'string') {
+            stopName = stop;
+            // Try to parse "Name [lat, lng]" format
+            const match = stop.match(/(.+) \[(.+), (.+)\]/);
+            if (match) {
+              stopName = match[1];
+              stopLat = parseFloat(match[2]);
+              stopLng = parseFloat(match[3]);
+            }
+          } else {
+            stopName = stop.name;
+            stopLat = stop.latitude;
+            stopLng = stop.longitude;
+          }
+
+          if (stopLat && stopLng) {
+            const dist = getDistance(latitude, longitude, stopLat, stopLng);
+            if (dist < 500) {
+               const notificationKey = `${routeId}_${stopName}`;
+               if (!notifiedStudents.has(notificationKey)) {
+                  sendNotificationToRoute(
+                    routeId, 
+                    'Bus Nearby! 🚌', 
+                    `The bus is approaching ${stopName}. Be ready!`
+                  );
+                  notifiedStudents.add(notificationKey);
+                  setTimeout(() => notifiedStudents.delete(notificationKey), 30 * 60 * 1000);
+               }
+            }
           }
         });
       }
