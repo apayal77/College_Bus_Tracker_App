@@ -1,3 +1,4 @@
+import { Platform, PermissionsAndroid, Alert } from 'react-native';
 import BackgroundGeolocation, {
   Location,
 } from 'react-native-background-geolocation';
@@ -104,6 +105,35 @@ export const LocationService = {
   },
 
   checkPermissions: async () => {
-     return true;
+    if (Platform.OS === 'android') {
+      const granted = await PermissionsAndroid.requestMultiple([
+        PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+        PermissionsAndroid.PERMISSIONS.ACCESS_COARSE_LOCATION,
+      ]);
+
+      if (
+        granted['android.permission.ACCESS_FINE_LOCATION'] !== PermissionsAndroid.RESULTS.GRANTED
+      ) {
+        Alert.alert(
+          'Permission Denied',
+          'Location permission is required to track the bus.'
+        );
+        return false;
+      }
+
+      // For Android 10+, we need background permission
+      if (Platform.Version >= 29) {
+        const backgroundGranted = await PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.ACCESS_BACKGROUND_LOCATION
+        );
+        if (backgroundGranted !== PermissionsAndroid.RESULTS.GRANTED) {
+          Alert.alert(
+            'Background Permission',
+            'Please set location permission to "Allow all the time" in settings for background tracking.'
+          );
+        }
+      }
+    }
+    return true;
   }
 };

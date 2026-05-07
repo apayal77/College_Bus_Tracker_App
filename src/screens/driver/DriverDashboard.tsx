@@ -84,6 +84,13 @@ export default function DriverDashboard() {
 
     try {
       setActionLoading(true);
+      
+      const hasPermission = await LocationService.checkPermissions();
+      if (!hasPermission) {
+        setActionLoading(false);
+        return;
+      }
+
       await firestoreService.startTrip({
         routeId: assignedRoute.id!,
         driverId: user!.uid,
