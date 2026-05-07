@@ -1,7 +1,7 @@
-import React, { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../firebase';
-import { Users, Map as MapIcon, Bus, AlertTriangle, Radio } from 'lucide-react';
+import { Users, Map as MapIcon, Bus, Radio } from 'lucide-react';
 import { io, Socket } from 'socket.io-client';
 import LiveTrackingMap from '../components/LiveTrackingMap';
 
@@ -12,6 +12,7 @@ interface BusUpdate {
   latitude: number;
   longitude: number;
   speed: number;
+  timestamp: number;
   routeName?: string;
 }
 

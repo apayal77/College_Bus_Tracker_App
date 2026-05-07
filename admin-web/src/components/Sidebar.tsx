@@ -1,10 +1,8 @@
-import React from 'react';
 import { NavLink } from 'react-router-dom';
 import { 
   LayoutDashboard, 
   Users, 
   Map as MapIcon, 
-  Settings, 
   LogOut,
   Bus
 } from 'lucide-react';
