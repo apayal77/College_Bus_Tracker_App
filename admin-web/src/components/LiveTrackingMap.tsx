@@ -69,9 +69,9 @@ const LiveTrackingMap: React.FC<LiveTrackingMapProps> = ({ buses, routesData = {
         />
 
         {/* 1. Render Route Paths & Stops */}
-        {Object.entries(routesData).map(([routeId, data]) => {
-           const positions = data.stops.map(s => [s.latitude, s.longitude] as [number, number]);
-           if (positions.length < 2) return null;
+        {Object.entries(routesData).map(([routeId, data]: [string, any]) => {
+           if (!data || !data.stops || data.stops.length < 2) return null;
+           const positions = data.stops.map((s: any) => [s.latitude, s.longitude] as [number, number]);
 
            return (
              <React.Fragment key={`route-${routeId}`}>
@@ -80,7 +80,7 @@ const LiveTrackingMap: React.FC<LiveTrackingMapProps> = ({ buses, routesData = {
                 {/* Main path */}
                 <Polyline positions={positions} color="#3b82f6" weight={5} opacity={0.6} />
                 
-                {data.stops.map((stop, idx) => (
+                {data.stops.map((stop: any, idx: number) => (
                   <Marker 
                     key={`stop-${routeId}-${idx}`} 
                     position={[stop.latitude, stop.longitude]} 

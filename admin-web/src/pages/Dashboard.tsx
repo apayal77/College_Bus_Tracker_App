@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { collection, query, where, getDocs, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
-import { Users, Map as MapIcon, Bus, Radio, Activity, MapPin } from 'lucide-react';
+import { Users, Map as MapIcon, Bus, Activity } from 'lucide-react';
 import { io, Socket } from 'socket.io-client';
 import LiveTrackingMap from '../components/LiveTrackingMap';
 
@@ -40,12 +40,10 @@ const Dashboard = () => {
     students: 0,
     drivers: 0,
     routes: 0,
-    activeTrips: 0
   });
 
   const [activeBuses, setActiveBuses] = useState<Record<string, BusUpdate>>({});
   const [routes, setRoutes] = useState<any[]>([]);
-  const [drivers, setDrivers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   
   const socketRef = useRef<Socket | null>(null);
@@ -54,15 +52,16 @@ const Dashboard = () => {
     // 1. Fetch Stats and initial data
     const fetchInitialData = async () => {
       try {
-        const studentSnap = await getDocs(query(collection(db, 'users'), where('role', '==', 'student')));
-        const driverSnap = await getDocs(query(collection(db, 'users'), where('role', '==', 'driver')));
-        const routeSnap = await getDocs(collection(db, 'routes'));
+        const [studentSnap, driverSnap, routeSnap] = await Promise.all([
+          getDocs(query(collection(db, 'users'), where('role', '==', 'student'))),
+          getDocs(query(collection(db, 'users'), where('role', '==', 'driver'))),
+          getDocs(collection(db, 'routes'))
+        ]);
         
         setStats({
           students: studentSnap.size,
           drivers: driverSnap.size,
           routes: routeSnap.size,
-          activeTrips: 0 // Will be updated by activeBuses count
         });
         setLoading(false);
       } catch (err) {
@@ -78,10 +77,6 @@ const Dashboard = () => {
       setRoutes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
 
-    const unsubDrivers = onSnapshot(query(collection(db, 'users'), where('role', '==', 'driver')), (snapshot) => {
-      setDrivers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    });
-
     // 3. Socket.io Integration
     try {
       socketRef.current = io(SOCKET_URL, {
@@ -90,7 +85,6 @@ const Dashboard = () => {
       });
 
       socketRef.current.on('connect', () => {
-        console.log('[Socket] Connected');
         socketRef.current?.emit('join-admin');
       });
 
@@ -117,7 +111,6 @@ const Dashboard = () => {
     return () => {
       socketRef.current?.disconnect();
       unsubRoutes();
-      unsubDrivers();
     };
   }, []);
 
@@ -156,7 +149,7 @@ const Dashboard = () => {
         <StatCard title="Students" value={stats.students} icon={<Users className="text-blue-400" />} color="blue" />
         <StatCard title="Active Trips" value={busEntries.length} icon={<Bus className="text-emerald-400" />} color="emerald" />
         <StatCard title="Routes" value={routes.length} icon={<MapIcon className="text-amber-400" />} color="amber" />
-        <StatCard title="Drivers" value={drivers.length} icon={<Users className="text-rose-400" />} color="rose" />
+        <StatCard title="Drivers" value={stats.drivers} icon={<Users className="text-rose-400" />} color="rose" />
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
@@ -167,7 +160,7 @@ const Dashboard = () => {
           </div>
           <LiveTrackingMap 
             buses={activeBuses} 
-            routesData={routes.reduce((acc, r) => ({ ...acc, [r.id]: r }), {})} 
+            routesData={routes.reduce((acc, r) => ({ ...acc, [r.id]: r }), {} as Record<string, any>)} 
           />
         </div>
 
