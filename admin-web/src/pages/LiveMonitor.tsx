@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react';
-import { collection, getDocs } from 'firebase/firestore';
+import { collection, getDocs, query, where } from 'firebase/firestore';
 import { db } from '../firebase';
 import { Radio } from 'lucide-react';
 import { io, Socket } from 'socket.io-client';
@@ -34,7 +34,7 @@ const LiveMonitor = () => {
         const routesSnap = await getDocs(collection(db, 'routes'));
         const names: Record<string, string> = {};
         routesSnap.forEach(doc => {
-          names[doc.id] = doc.data().routeName;
+          names[doc.id] = (doc.data() as any).routeName;
         });
         routeNamesRef.current = names;
 
@@ -42,7 +42,7 @@ const LiveMonitor = () => {
         const activeTripsSnap = await getDocs(query(collection(db, 'trips'), where('status', '==', 'active')));
         const initialBuses: Record<string, BusUpdate> = {};
         activeTripsSnap.forEach(doc => {
-          const data = doc.data();
+          const data = doc.data() as any;
           if (data.currentLocation) {
             initialBuses[data.routeId] = {
               routeId: data.routeId,

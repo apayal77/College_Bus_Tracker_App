@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { collection, query, where, onSnapshot, doc, deleteDoc, addDoc } from 'firebase/firestore';
 import { db } from '../firebase';
-import { Plus, Trash2, Edit2, Search, MapPin, X } from 'lucide-react';
+import { Plus, Trash2, MapPin, X } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, useMapEvents, Popup } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
@@ -43,7 +43,7 @@ const ManageRoutes = () => {
   const [routes, setRoutes] = useState<any[]>([]);
   const [drivers, setDrivers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchTerm] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [formData, setFormData] = useState({ routeName: '', driverId: '' });
   const [selectedStops, setSelectedStops] = useState<Stop[]>([]);
