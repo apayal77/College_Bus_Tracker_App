@@ -246,7 +246,7 @@ export default function SplashScreen({ navigation }: Props) {
             ]}
           />
           <Image
-            source={require('../../assets/images/college_bus_logo.png')}
+            source={require('../../assets/images/buslogo.png')}
             style={styles.logoImage}
             resizeMode="contain"
           />
