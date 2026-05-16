@@ -246,7 +246,7 @@ export default function SplashScreen({ navigation }: Props) {
             ]}
           />
           <Image
-            source={{ uri: 'buslogo' }}
+            source={require('../../assets/images/buslogo.png')}
             style={styles.logoImage}
             resizeMode="contain"
           />
