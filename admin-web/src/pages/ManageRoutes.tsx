@@ -98,12 +98,12 @@ const ManageRoutes = () => {
   };
 
   const MapCenterUpdater = ({ coords }: { coords: {lat: number, lng: number} | null }) => {
-    const map = L.useMap();
+    const map = useMap();
     useEffect(() => {
       if (coords) {
         map.flyTo([coords.lat, coords.lng], 16);
       }
-    }, [coords]);
+    }, [coords, map]);
     return null;
   };
 
