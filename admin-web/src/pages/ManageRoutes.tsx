@@ -49,6 +49,8 @@ const ManageRoutes = () => {
   const [selectedStops, setSelectedStops] = useState<Stop[]>([]);
   const [tempCoords, setTempCoords] = useState<{lat: number, lng: number} | null>(null);
   const [newStopName, setNewStopName] = useState('');
+  const [locationSearch, setLocationSearch] = useState('');
+  const [isSearching, setIsSearching] = useState(false);
 
   useEffect(() => {
     // Fetch Routes
@@ -70,6 +72,40 @@ const ManageRoutes = () => {
       unsubscribeDrivers();
     };
   }, []);
+
+  const handleSearchLocation = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!locationSearch.trim()) return;
+
+    setIsSearching(true);
+    try {
+      const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(locationSearch)}`);
+      const data = await response.json();
+      if (data && data.length > 0) {
+        const { lat, lon, display_name } = data[0];
+        const newLat = parseFloat(lat);
+        const newLng = parseFloat(lon);
+        setTempCoords({ lat: newLat, lng: newLng });
+        setNewStopName(display_name.split(',')[0]); // Default stop name to first part of address
+      } else {
+        alert("Location not found. Try being more specific.");
+      }
+    } catch (error) {
+      console.error("Search error:", error);
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  const MapCenterUpdater = ({ coords }: { coords: {lat: number, lng: number} | null }) => {
+    const map = L.useMap();
+    useEffect(() => {
+      if (coords) {
+        map.flyTo([coords.lat, coords.lng], 16);
+      }
+    }, [coords]);
+    return null;
+  };
 
   const handleMapClick = (lat: number, lng: number) => {
     setTempCoords({ lat, lng });
@@ -273,9 +309,26 @@ const ManageRoutes = () => {
               </div>
 
               <div className="space-y-4">
-                <div className="flex justify-between items-end">
-                   <label className="block text-sm font-medium text-slate-400">Add Stops on Map</label>
-                   {tempCoords && <span className="text-[10px] text-amber-500 animate-pulse font-bold">PIN DROPPED - NAME IT BELOW</span>}
+                <div className="space-y-2">
+                   <label className="block text-sm font-medium text-slate-400">Search & Add Stops</label>
+                   <div className="flex gap-2">
+                      <input 
+                        type="text"
+                        placeholder="Search for a location/address..."
+                        className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-4 py-2 text-white text-sm focus:border-amber-500 outline-none"
+                        value={locationSearch}
+                        onChange={(e) => setLocationSearch(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleSearchLocation(e))}
+                      />
+                      <button 
+                        type="button"
+                        onClick={handleSearchLocation}
+                        className="bg-slate-800 hover:bg-slate-700 px-4 py-2 rounded-xl text-xs font-bold transition-all border border-slate-700"
+                        disabled={isSearching}
+                      >
+                        {isSearching ? '...' : 'Search'}
+                      </button>
+                   </div>
                 </div>
                 
                 <div className="h-[400px] rounded-2xl overflow-hidden border border-slate-700 shadow-inner relative">
@@ -286,6 +339,7 @@ const ManageRoutes = () => {
                   >
                     <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
                     <MapEvents onMapClick={handleMapClick} />
+                    <MapCenterUpdater coords={tempCoords} />
                     
                     {/* Existing Stops */}
                     {selectedStops.map((stop, i) => (
@@ -330,7 +384,7 @@ const ManageRoutes = () => {
                     </div>
                   )}
                 </div>
-                <p className="text-[10px] text-slate-500 italic text-center">Tip: Click anywhere on the map to drop a pin, then name it to add it to the list.</p>
+                <p className="text-[10px] text-slate-500 italic text-center">Tip: Search for an address above or click the map directly.</p>
               </div>
             </form>
           </div>
