@@ -51,7 +51,24 @@ const ManageRoutes = () => {
   const [newStopName, setNewStopName] = useState('');
 
   useEffect(() => {
-    // ... (Keep existing onSnapshot logic)
+    // Fetch Routes
+    const unsubscribeRoutes = onSnapshot(collection(db, 'routes'), (snapshot) => {
+      const routeList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setRoutes(routeList);
+      setLoading(false);
+    });
+
+    // Fetch Drivers for the dropdown
+    const qDrivers = query(collection(db, 'users'), where('role', '==', 'driver'));
+    const unsubscribeDrivers = onSnapshot(qDrivers, (snapshot) => {
+      const driverList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setDrivers(driverList);
+    });
+
+    return () => {
+      unsubscribeRoutes();
+      unsubscribeDrivers();
+    };
   }, []);
 
   const handleMapClick = (lat: number, lng: number) => {
@@ -133,7 +150,49 @@ const ManageRoutes = () => {
       </header>
 
       {/* List View */}
-      {/* ... (Keep list view logic) */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {loading ? (
+          <p className="text-slate-500 col-span-2 text-center py-10">Loading...</p>
+        ) : filteredRoutes.length === 0 ? (
+          <p className="text-slate-500 col-span-2 text-center py-10">No routes found.</p>
+        ) : (
+          filteredRoutes.map((route) => (
+            <div key={route.id} className="card relative group">
+              <div className="flex justify-between items-start mb-4">
+                <div className="bg-amber-500/10 p-3 rounded-xl">
+                  <MapPin className="text-amber-500" size={24} />
+                </div>
+                <div className="flex gap-2">
+                  <button 
+                    onClick={() => {
+                        if (window.confirm('Are you sure you want to delete this route?')) {
+                            deleteDoc(doc(db, 'routes', route.id));
+                        }
+                    }}
+                    className="p-2 text-slate-400 hover:text-red-400 bg-transparent transition-colors"
+                  >
+                    <Trash2 size={18} />
+                  </button>
+                </div>
+              </div>
+              
+              <h3 className="text-xl font-bold text-white mb-2">{route.routeName}</h3>
+              <p className="text-sm text-slate-400 mb-4">Driver: <span className="text-emerald-500">{getDriverName(route.driverId)}</span></p>
+              
+              <div className="space-y-2">
+                <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Stops ({route.stops?.length || 0})</p>
+                <div className="flex flex-wrap gap-2">
+                  {route.stops?.map((stop: any, idx: number) => (
+                    <span key={idx} className="px-2 py-1 bg-slate-800 text-slate-300 rounded text-xs">
+                      {typeof stop === 'string' ? stop : stop.name}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
 
       {/* Create Route Modal */}
       {showModal && (
