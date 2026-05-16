@@ -8,10 +8,16 @@ export interface UserData {
   routeAssigned?: string;
 }
 
+export interface Stop {
+  name: string;
+  latitude: number;
+  longitude: number;
+}
+
 export interface RouteData {
   id?: string;
   routeName: string;
-  stops: string[];
+  stops: Stop[];
   driverId?: string;
   studentIds: string[];
 }

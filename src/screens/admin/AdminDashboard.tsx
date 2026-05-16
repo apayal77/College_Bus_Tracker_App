@@ -1,8 +1,13 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView, ScrollView } from 'react-native';
+import { View, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import { Text, Appbar, Chip, Divider } from 'react-native-paper';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { AppStackParamList } from '../../navigation/AppNavigator';
+import AppIcon, { ICONS } from '../../components/AppIcon';
+import AppCard from '../../components/AppCard';
+import { dark } from '../../theme/colors';
 
 type AdminDashboardProps = {
   navigation: NativeStackNavigationProp<AppStackParamList, 'AdminDashboard'>;
@@ -11,37 +16,110 @@ type AdminDashboardProps = {
 export default function AdminDashboard({ navigation }: AdminDashboardProps) {
   const { user, logout } = useAuth();
 
+  // ── Action cards — all navigation targets unchanged ────────────
   const actions = [
-    { title: 'Manage Students', count: 'View/Add Students', color: '#3b82f6', target: 'ManageUsers', params: { role: 'student' } },
-    { title: 'Manage Drivers', count: 'View/Add Drivers', color: '#10b981', target: 'ManageUsers', params: { role: 'driver' } },
-    { title: 'Manage Routes', count: 'View/Add Routes', color: '#f59e0b', target: 'ManageRoutes' },
-    { title: 'Live Fleet Monitor', count: '3 Buses Live', color: '#8b5cf6', target: null },
+    {
+      title: 'Manage Students',
+      sub: 'View, add & edit students',
+      color: dark.student,
+      target: 'ManageUsers',
+      params: { role: 'student' as const },
+      icon: ICONS.manageStudents,
+    },
+    {
+      title: 'Manage Drivers',
+      sub: 'View, add & edit drivers',
+      color: dark.driver,
+      target: 'ManageUsers',
+      params: { role: 'driver' as const },
+      icon: ICONS.manageDrivers,
+    },
+    {
+      title: 'Manage Routes',
+      sub: 'Create & assign bus routes',
+      color: dark.admin,
+      target: 'ManageRoutes',
+      params: undefined,
+      icon: ICONS.createRoute,
+    },
+    {
+      title: 'Live Fleet Monitor',
+      sub: 'Track all active buses',
+      color: dark.secondary,
+      target: null,
+      params: undefined,
+      icon: ICONS.fleet,
+    },
   ];
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.greeting}>Admin Panel 🛠️</Text>
-          <Text style={styles.name}>{user?.name || 'Administrator'}</Text>
+    <SafeAreaView style={styles.safe} edges={['top']}>
+
+      {/* ── Appbar ────────────────────────────────────────────── */}
+      <Appbar.Header style={styles.appbar} elevated>
+        <View style={styles.appbarLeft}>
+          <AppIcon {...ICONS.monitor} size={20} color={dark.admin} />
+          <Appbar.Content
+            title="Admin Panel"
+            titleStyle={styles.appbarTitle}
+            subtitle={user?.name || 'Administrator'}
+            subtitleStyle={styles.appbarSub}
+          />
         </View>
-        <TouchableOpacity style={styles.logoutBtn} onPress={logout}>
-          <Text style={styles.logoutText}>Logout</Text>
-        </TouchableOpacity>
-      </View>
+        <Appbar.Action
+          icon="logout"
+          color={dark.error}
+          onPress={logout}
+          size={22}
+        />
+      </Appbar.Header>
 
       <ScrollView contentContainerStyle={styles.content}>
-        <Text style={styles.sectionTitle}>Management</Text>
+
+        {/* ── Welcome chip ──────────────────────────────────────── */}
+        <View style={styles.welcomeRow}>
+          <Chip
+            icon="shield-account"
+            style={styles.roleChip}
+            textStyle={{ color: dark.admin, fontWeight: '700' }}>
+            Admin
+          </Chip>
+          <Text variant="bodySmall" style={styles.welcomeSub}>
+            Full system access
+          </Text>
+        </View>
+
+        <Divider style={styles.divider} />
+
+        {/* ── Section header ────────────────────────────────────── */}
+        <Text variant="titleSmall" style={styles.sectionTitle}>Management</Text>
+
+        {/* ── Action cards ──────────────────────────────────────── */}
         {actions.map((action, index) => (
           <TouchableOpacity
             key={index}
-            onPress={() => action.target && navigation.navigate(action.target as any, action.params)}
-            style={[styles.card, { borderLeftColor: action.color }]}>
-            <View>
-              <Text style={styles.cardTitle}>{action.title}</Text>
-              <Text style={styles.cardSub}>{action.count}</Text>
-            </View>
-            <Text style={[styles.chevron, { color: action.color }]}>→</Text>
+            activeOpacity={0.82}
+            onPress={() =>
+              action.target &&
+              navigation.navigate(action.target as any, action.params)
+            }>
+            <AppCard accentColor={action.color} elevation={2} style={styles.card}>
+              <View style={styles.cardInner}>
+                {/* Icon badge */}
+                <View style={[styles.iconBadge, { backgroundColor: action.color + '26' }]}>
+                  <AppIcon {...action.icon} size={24} color={action.color} />
+                </View>
+
+                {/* Text */}
+                <View style={styles.cardText}>
+                  <Text variant="titleMedium" style={styles.cardTitle}>{action.title}</Text>
+                  <Text variant="bodySmall" style={styles.cardSub}>{action.sub}</Text>
+                </View>
+
+                {/* Chevron */}
+                <AppIcon {...ICONS.chevronRight} size={22} color={action.color} />
+              </View>
+            </AppCard>
           </TouchableOpacity>
         ))}
       </ScrollView>
@@ -49,45 +127,39 @@ export default function AdminDashboard({ navigation }: AdminDashboardProps) {
   );
 }
 
-
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0f172a' },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 16,
-    backgroundColor: '#1e293b',
-    borderBottomWidth: 1,
-    borderBottomColor: '#334155',
-  },
-  greeting: { fontSize: 16, fontWeight: 'bold', color: '#f1f5f9' },
-  name: { fontSize: 13, color: '#f59e0b', marginTop: 2 },
-  logoutBtn: {
-    backgroundColor: '#dc2626',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 8,
-  },
-  logoutText: { color: '#fff', fontWeight: '600', fontSize: 13 },
-  content: { padding: 20 },
+  safe: { flex: 1, backgroundColor: dark.bg },
+  appbar: { backgroundColor: dark.surface, paddingHorizontal: 4 },
+  appbarLeft: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, paddingLeft: 6 },
+  appbarTitle: { color: dark.textPrimary, fontWeight: '800', fontSize: 18 },
+  appbarSub: { color: dark.admin, fontSize: 12 },
+
+  content: { padding: 20, paddingBottom: 40 },
+
+  welcomeRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 16 },
+  roleChip: { backgroundColor: dark.admin + '22', borderColor: dark.admin, borderWidth: 1 },
+  welcomeSub: { color: dark.textMuted },
+
+  divider: { backgroundColor: dark.border, marginBottom: 20 },
+
   sectionTitle: {
-    fontSize: 18,
+    color: dark.textSecondary,
     fontWeight: '700',
-    color: '#94a3b8',
-    marginBottom: 16,
-  },
-  card: {
-    backgroundColor: '#1e293b',
-    padding: 20,
-    borderRadius: 12,
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
     marginBottom: 14,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    borderLeftWidth: 5,
   },
-  cardTitle: { fontSize: 16, fontWeight: 'bold', color: '#f1f5f9' },
-  cardSub: { fontSize: 13, color: '#64748b', marginTop: 4 },
-  chevron: { fontSize: 22, fontWeight: 'bold' },
+
+  card: { marginBottom: 14 },
+  cardInner: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  iconBadge: {
+    width: 50,
+    height: 50,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  cardText: { flex: 1 },
+  cardTitle: { color: dark.textPrimary, fontWeight: '700' },
+  cardSub: { color: dark.textMuted, marginTop: 2 },
 });

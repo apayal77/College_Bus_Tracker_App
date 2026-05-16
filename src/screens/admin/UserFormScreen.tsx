@@ -1,18 +1,14 @@
 import React, { useState } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  TextInput,
-  TouchableOpacity,
-  ScrollView,
-  Alert,
-  ActivityIndicator,
-} from 'react-native';
+import { View, StyleSheet, ScrollView, Alert } from 'react-native';
+import { Text, ActivityIndicator, Snackbar } from 'react-native-paper';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import firestore from '@react-native-firebase/firestore';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
 import { AppStackParamList } from '../../navigation/AppNavigator';
+import AppButton from '../../components/AppButton';
+import AppTextInput from '../../components/AppTextInput';
+import { dark } from '../../theme/colors';
 
 type UserFormScreenProps = {
   navigation: NativeStackNavigationProp<AppStackParamList, 'UserForm'>;
@@ -27,15 +23,19 @@ export default function UserFormScreen({ navigation, route }: UserFormScreenProp
   const [phone, setPhone] = useState(user?.phone || '');
   const [routeAssigned, setRouteAssigned] = useState(user?.routeAssigned || '');
   const [loading, setLoading] = useState(false);
+  const [snackbar, setSnackbar] = useState({ visible: false, message: '', error: false });
+
+  const showSnack = (message: string, error = false) =>
+    setSnackbar({ visible: true, message, error });
 
   const handleSave = async () => {
     if (!name.trim() || !phone.trim()) {
-      Alert.alert('Validation', 'Please fill in Name and Phone Number');
+      showSnack('Please fill in Name and Phone Number', true);
       return;
     }
 
     if (!phone.startsWith('+')) {
-      Alert.alert('Validation', 'Phone number must include country code (e.g., +91)');
+      showSnack('Phone number must include country code (e.g., +91)', true);
       return;
     }
 
@@ -52,14 +52,13 @@ export default function UserFormScreen({ navigation, route }: UserFormScreenProp
       if (isEditing) {
         await firestore().collection('users').doc(user.id).update(userData);
       } else {
-        // Check if user already exists
         const existing = await firestore()
           .collection('users')
           .where('phone', '==', phone.trim())
           .get();
         
         if (!existing.empty) {
-          Alert.alert('Error', 'A user with this phone number already exists.');
+          showSnack('A user with this phone number already exists.', true);
           setLoading(false);
           return;
         }
@@ -73,84 +72,71 @@ export default function UserFormScreen({ navigation, route }: UserFormScreenProp
       navigation.goBack();
     } catch (error) {
       console.error('Save error:', error);
-      Alert.alert('Error', 'Failed to save user data');
+      showSnack('Failed to save user data', true);
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <View style={styles.formGroup}>
-        <Text style={styles.label}>Full Name</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="e.g. John Doe"
-          placeholderTextColor="#64748b"
-          value={name}
-          onChangeText={setName}
-        />
-      </View>
+    <SafeAreaView style={styles.safe} edges={['bottom']}>
+      <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+        <View style={styles.formGroup}>
+          <Text variant="labelLarge" style={styles.label}>Full Name</Text>
+          <AppTextInput
+            placeholder="e.g. John Doe"
+            value={name}
+            onChangeText={setName}
+            left={<AppTextInput.Icon icon="account" />}
+          />
+        </View>
 
-      <View style={styles.formGroup}>
-        <Text style={styles.label}>Phone Number (with Country Code)</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="e.g. +919999988888"
-          placeholderTextColor="#64748b"
-          keyboardType="phone-pad"
-          value={phone}
-          onChangeText={setPhone}
-        />
-      </View>
+        <View style={styles.formGroup}>
+          <Text variant="labelLarge" style={styles.label}>Phone Number (with Country Code)</Text>
+          <AppTextInput
+            placeholder="e.g. +919999988888"
+            keyboardType="phone-pad"
+            value={phone}
+            onChangeText={setPhone}
+            left={<AppTextInput.Icon icon="phone" />}
+          />
+        </View>
 
-      <View style={styles.formGroup}>
-        <Text style={styles.label}>Route Assigned (Optional)</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="e.g. route_01"
-          placeholderTextColor="#64748b"
-          value={routeAssigned}
-          onChangeText={setRouteAssigned}
-        />
-      </View>
+        <View style={styles.formGroup}>
+          <Text variant="labelLarge" style={styles.label}>Route Assigned (Optional)</Text>
+          <AppTextInput
+            placeholder="e.g. route_01"
+            value={routeAssigned}
+            onChangeText={setRouteAssigned}
+            left={<AppTextInput.Icon icon="map-marker-path" />}
+          />
+        </View>
 
-      <TouchableOpacity 
-        style={[styles.saveBtn, loading && styles.disabledBtn]} 
-        onPress={handleSave}
-        disabled={loading}
-      >
-        {loading ? (
-          <ActivityIndicator color="#fff" />
-        ) : (
-          <Text style={styles.saveBtnText}>{isEditing ? 'Update User' : 'Add User'}</Text>
-        )}
-      </TouchableOpacity>
-    </ScrollView>
+        <AppButton
+          label={isEditing ? 'Update User' : 'Add User'}
+          onPress={handleSave}
+          loading={loading}
+          disabled={loading}
+          icon={isEditing ? 'account-edit' : 'account-plus'}
+          style={styles.saveBtn}
+        />
+      </ScrollView>
+
+      <Snackbar
+        visible={snackbar.visible}
+        onDismiss={() => setSnackbar(s => ({ ...s, visible: false }))}
+        style={{ backgroundColor: snackbar.error ? dark.errorDark : dark.success }}>
+        {snackbar.message}
+      </Snackbar>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0f172a' },
+  safe: { flex: 1, backgroundColor: dark.bg },
+  container: { flex: 1 },
   content: { padding: 24 },
   formGroup: { marginBottom: 20 },
-  label: { fontSize: 14, color: '#94a3b8', marginBottom: 8, fontWeight: '600' },
-  input: {
-    backgroundColor: '#1e293b',
-    borderRadius: 8,
-    padding: 12,
-    color: '#f1f5f9',
-    fontSize: 16,
-    borderWidth: 1,
-    borderColor: '#334155',
-  },
-  saveBtn: {
-    backgroundColor: '#2563eb',
-    paddingVertical: 16,
-    borderRadius: 8,
-    alignItems: 'center',
-    marginTop: 10,
-  },
-  disabledBtn: { opacity: 0.7 },
-  saveBtnText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
+  label: { color: dark.textSecondary, marginBottom: 8, fontWeight: '600' },
+  saveBtn: { marginTop: 12 },
 });

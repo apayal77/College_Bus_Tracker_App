@@ -25,7 +25,7 @@ const Dashboard = () => {
   });
 
   const [activeBuses, setActiveBuses] = useState<Record<string, BusUpdate>>({});
-  const [routeNames, setRouteNames] = useState<Record<string, string>>({});
+  const routeNamesRef = useRef<Record<string, string>>({});
   const socketRef = useRef<Socket | null>(null);
 
   useEffect(() => {
@@ -43,13 +43,33 @@ const Dashboard = () => {
         routesSnap.forEach(doc => {
           names[doc.id] = doc.data().routeName;
         });
-        setRouteNames(names);
+        routeNamesRef.current = names;
+
+        // Fetch CURRENTLY ACTIVE TRIPS from Firestore to show immediately
+        const activeTripsQuery = query(collection(db, 'trips'), where('status', '==', 'active'));
+        const activeTripsSnap = await getDocs(activeTripsQuery);
+        
+        const initialBuses: Record<string, BusUpdate> = {};
+        activeTripsSnap.forEach(doc => {
+          const data = doc.data();
+          if (data.currentLocation) {
+            initialBuses[data.routeId] = {
+              routeId: data.routeId,
+              latitude: data.currentLocation.latitude,
+              longitude: data.currentLocation.longitude,
+              speed: 0,
+              timestamp: data.lastUpdate?.toMillis() || Date.now(),
+              routeName: names[data.routeId] || data.routeId
+            };
+          }
+        });
+        setActiveBuses(initialBuses);
 
         setStats({
           students: studentsSnap.size,
           drivers: driversSnap.size,
           routes: routesSnap.size,
-          activeTrips: 0 
+          activeTrips: activeTripsSnap.size
         });
       } catch (error) {
         console.error('Error fetching stats:', error);
@@ -62,22 +82,40 @@ const Dashboard = () => {
     socketRef.current = io(SOCKET_URL, {
       transports: ['websocket'],
     });
-    socketRef.current.emit('joinRoute', 'admin'); // Join admin room
+    
+    socketRef.current.on('connect', () => {
+      console.log('Admin socket connected');
+      socketRef.current?.emit('joinRoute', 'admin'); 
+    });
 
     socketRef.current.on('allBusesUpdate', (data: BusUpdate) => {
-      setActiveBuses(prev => ({
-        ...prev,
-        [data.routeId]: {
-          ...data,
-          routeName: routeNames[data.routeId] || data.routeId
-        }
-      }));
+      setActiveBuses(prev => {
+        const name = routeNamesRef.current[data.routeId] || data.routeId;
+        return {
+          ...prev,
+          [data.routeId]: {
+            ...data,
+            routeName: name
+          }
+        };
+      });
+    });
+
+    // Handle drivers going offline
+    socketRef.current.on('driverStatus', (data: { routeId: string, online: boolean }) => {
+      if (!data.online) {
+        setActiveBuses(prev => {
+          const newState = { ...prev };
+          delete newState[data.routeId];
+          return newState;
+        });
+      }
     });
 
     return () => {
       socketRef.current?.disconnect();
     };
-  }, [routeNames]);
+  }, []);
 
   const statCards = [
     { label: 'Total Students', value: stats.students, icon: <Users className="text-blue-500" />, color: 'blue' },

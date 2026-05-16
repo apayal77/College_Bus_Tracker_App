@@ -18,40 +18,86 @@ interface BusUpdate {
 
 const LiveMonitor = () => {
   const [activeBuses, setActiveBuses] = useState<Record<string, BusUpdate>>({});
-  const [routeNames, setRouteNames] = useState<Record<string, string>>({});
+  const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting');
+  const routeNamesRef = useRef<Record<string, string>>({});
   const socketRef = useRef<Socket | null>(null);
 
   useEffect(() => {
-    const fetchRouteNames = async () => {
-      const routesSnap = await getDocs(collection(db, 'routes'));
-      const names: Record<string, string> = {};
-      routesSnap.forEach(doc => {
-        names[doc.id] = doc.data().routeName;
-      });
-      setRouteNames(names);
+    const initMonitor = async () => {
+      try {
+        // 1. Check for missing Firebase Config
+        if (!import.meta.env.VITE_FIREBASE_PROJECT_ID) {
+          console.error('[LiveMonitor] Firebase Environment Variables are MISSING!');
+        }
+
+        // 2. Fetch Route Names
+        const routesSnap = await getDocs(collection(db, 'routes'));
+        const names: Record<string, string> = {};
+        routesSnap.forEach(doc => {
+          names[doc.id] = doc.data().routeName;
+        });
+        routeNamesRef.current = names;
+
+        // 3. Fetch Initial Active Trips
+        const activeTripsSnap = await getDocs(query(collection(db, 'trips'), where('status', '==', 'active')));
+        const initialBuses: Record<string, BusUpdate> = {};
+        activeTripsSnap.forEach(doc => {
+          const data = doc.data();
+          if (data.currentLocation) {
+            initialBuses[data.routeId] = {
+              routeId: data.routeId,
+              latitude: data.currentLocation.latitude,
+              longitude: data.currentLocation.longitude,
+              speed: 0,
+              timestamp: data.lastUpdate?.toMillis() || Date.now(),
+              routeName: names[data.routeId] || data.routeId
+            };
+          }
+        });
+        setActiveBuses(initialBuses);
+      } catch (error) {
+        console.error('Error initializing monitor:', error);
+      }
     };
 
-    fetchRouteNames();
+    initMonitor();
 
+    // 4. Socket Setup
     socketRef.current = io(SOCKET_URL, {
       transports: ['websocket'],
     });
-    socketRef.current.emit('joinRoute', 'admin');
+
+    socketRef.current.on('connect', () => {
+      setConnectionStatus('connected');
+      socketRef.current?.emit('joinRoute', 'admin');
+    });
+
+    socketRef.current.on('disconnect', () => setConnectionStatus('disconnected'));
 
     socketRef.current.on('allBusesUpdate', (data: BusUpdate) => {
       setActiveBuses(prev => ({
         ...prev,
         [data.routeId]: {
           ...data,
-          routeName: routeNames[data.routeId] || data.routeId
+          routeName: routeNamesRef.current[data.routeId] || data.routeId
         }
       }));
+    });
+
+    socketRef.current.on('driverStatus', (data: { routeId: string, online: boolean }) => {
+      if (!data.online) {
+        setActiveBuses(prev => {
+          const newState = { ...prev };
+          delete newState[data.routeId];
+          return newState;
+        });
+      }
     });
 
     return () => {
       socketRef.current?.disconnect();
     };
-  }, [routeNames]);
+  }, []);
 
   return (
     <div className="space-y-6">
@@ -60,9 +106,22 @@ const LiveMonitor = () => {
           <h1 className="text-3xl font-bold text-white">Live Fleet Monitor</h1>
           <p className="text-slate-400 mt-1">Real-time tracking of all active bus routes.</p>
         </div>
-        <div className="flex items-center gap-2 text-xs text-emerald-500 font-bold bg-emerald-500/10 px-4 py-2 rounded-full border border-emerald-500/20">
-          <span className="w-2 h-2 bg-emerald-500 rounded-full animate-ping"></span>
-          {Object.keys(activeBuses).length} BUSES ACTIVE
+        <div className="flex items-center gap-4">
+          <div className={`flex items-center gap-2 text-xs font-bold px-4 py-2 rounded-full border ${
+            connectionStatus === 'connected' ? 'text-emerald-500 bg-emerald-500/10 border-emerald-500/20' :
+            connectionStatus === 'connecting' ? 'text-amber-500 bg-amber-500/10 border-amber-500/20' :
+            'text-red-500 bg-red-500/10 border-red-500/20'
+          }`}>
+            <span className={`w-2 h-2 rounded-full ${
+              connectionStatus === 'connected' ? 'bg-emerald-500 animate-ping' :
+              connectionStatus === 'connecting' ? 'bg-amber-500 animate-pulse' :
+              'bg-red-500'
+            }`}></span>
+            {connectionStatus.toUpperCase()}
+          </div>
+          <div className="flex items-center gap-2 text-xs text-blue-500 font-bold bg-blue-500/10 px-4 py-2 rounded-full border border-blue-500/20">
+            {Object.keys(activeBuses).length} BUSES ACTIVE
+          </div>
         </div>
       </div>
 

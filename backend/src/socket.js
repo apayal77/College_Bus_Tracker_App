@@ -57,7 +57,9 @@ const initSocket = (server) => {
         state.stops = stops;
       }
       
-      io.to(routeId).emit('driverStatus', { online: true });
+      const status = { routeId, online: true };
+      io.to(routeId).emit('driverStatus', status);
+      io.to('admin').emit('driverStatus', status);
     });
 
     socket.on('locationUpdate', async (data) => {
@@ -112,13 +114,35 @@ const initSocket = (server) => {
       io.to('admin').emit('allBusesUpdate', update);
     });
 
+    socket.on('tripStatusUpdate', (data) => {
+      const { routeId, status } = data;
+      console.log(`[Socket] Trip ${status} for route: ${routeId}`);
+      
+      // Broadcast to students on this route
+      io.to(routeId).emit('tripStatusChange', { status });
+      
+      // Update admin room
+      io.to('admin').emit('driverStatus', { routeId, online: status === 'started' });
+
+      // Reset notification triggers if a new trip starts
+      if (status === 'started') {
+        for (const key of notifiedStudents.keys()) {
+          if (key.startsWith(`${routeId}_`)) {
+            notifiedStudents.delete(key);
+          }
+        }
+      }
+    });
+
     socket.on('disconnect', () => {
       const routeId = socketToRoute.get(socket.id);
       if (routeId) {
         const state = routeStates.get(routeId);
         if (state && state.driverSocketId === socket.id) {
           state.driverSocketId = null;
-          io.to(routeId).emit('driverStatus', { online: false });
+          const status = { routeId, online: false };
+          io.to(routeId).emit('driverStatus', status);
+          io.to('admin').emit('driverStatus', status);
         }
       }
     });

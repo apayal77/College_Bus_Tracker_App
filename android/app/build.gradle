@@ -118,3 +118,18 @@ dependencies {
         implementation jscFlavor
     }
 }
+
+// ── react-native-vector-icons: copy font files into Android assets ──────────
+project.ext.vectoricons = [
+    iconFontNames: [
+        'MaterialIcons.ttf',
+        'MaterialCommunityIcons.ttf',
+        'Ionicons.ttf',
+        'FontAwesome.ttf',
+        'FontAwesome5_Brands.ttf',
+        'FontAwesome5_Regular.ttf',
+        'FontAwesome5_Solid.ttf',
+    ]
+]
+
+apply from: "../../node_modules/react-native-vector-icons/fonts.gradle"

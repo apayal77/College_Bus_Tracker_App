@@ -1,18 +1,14 @@
 import React, { useState } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  TextInput,
-  TouchableOpacity,
-  ScrollView,
-  Alert,
-  ActivityIndicator,
-} from 'react-native';
+import { View, StyleSheet, ScrollView } from 'react-native';
+import { Text, ActivityIndicator, Snackbar } from 'react-native-paper';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import firestore from '@react-native-firebase/firestore';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
 import { AppStackParamList } from '../../navigation/AppNavigator';
+import AppButton from '../../components/AppButton';
+import AppTextInput from '../../components/AppTextInput';
+import { dark } from '../../theme/colors';
 
 type RouteFormScreenProps = {
   navigation: NativeStackNavigationProp<AppStackParamList, 'RouteForm'>;
@@ -27,10 +23,14 @@ export default function RouteFormScreen({ navigation, route: routeNav }: RouteFo
   const [stops, setStops] = useState(route?.stops?.join(', ') || '');
   const [driverId, setDriverId] = useState(route?.driverId || '');
   const [loading, setLoading] = useState(false);
+  const [snackbar, setSnackbar] = useState({ visible: false, message: '', error: false });
+
+  const showSnack = (message: string, error = false) =>
+    setSnackbar({ visible: true, message, error });
 
   const handleSave = async () => {
     if (!routeName.trim() || !stops.trim()) {
-      Alert.alert('Validation', 'Please fill in Route Name and Stops');
+      showSnack('Please fill in Route Name and Stops', true);
       return;
     }
 
@@ -58,88 +58,76 @@ export default function RouteFormScreen({ navigation, route: routeNav }: RouteFo
       navigation.goBack();
     } catch (error) {
       console.error('Save error:', error);
-      Alert.alert('Error', 'Failed to save route data');
+      showSnack('Failed to save route data', true);
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <View style={styles.formGroup}>
-        <Text style={styles.label}>Route Name</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="e.g. Route 01 - North"
-          placeholderTextColor="#64748b"
-          value={routeName}
-          onChangeText={setRouteName}
-        />
-      </View>
+    <SafeAreaView style={styles.safe} edges={['bottom']}>
+      <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+        <View style={styles.formGroup}>
+          <Text variant="labelLarge" style={styles.label}>Route Name</Text>
+          <AppTextInput
+            placeholder="e.g. Route 01 - North"
+            value={routeName}
+            onChangeText={setRouteName}
+            left={<AppTextInput.Icon icon="bus-side" />}
+          />
+        </View>
 
-      <View style={styles.formGroup}>
-        <Text style={styles.label}>Stops (Comma separated)</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="e.g. Stop A, Stop B, Stop C"
-          placeholderTextColor="#64748b"
-          multiline
-          numberOfLines={3}
-          value={stops}
-          onChangeText={setStops}
-        />
-        <Text style={styles.hint}>Separate stop names with commas.</Text>
-      </View>
+        <View style={styles.formGroup}>
+          <Text variant="labelLarge" style={styles.label}>Stops (Comma separated)</Text>
+          <AppTextInput
+            placeholder="e.g. Stop A, Stop B, Stop C"
+            multiline
+            numberOfLines={4}
+            value={stops}
+            onChangeText={setStops}
+            style={styles.textArea}
+          />
+          <Text variant="bodySmall" style={styles.hint}>Separate stop names with commas.</Text>
+        </View>
 
-      <View style={styles.formGroup}>
-        <Text style={styles.label}>Driver ID (Optional)</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="Enter driver user ID"
-          placeholderTextColor="#64748b"
-          value={driverId}
-          onChangeText={setDriverId}
-        />
-      </View>
+        <View style={styles.formGroup}>
+          <Text variant="labelLarge" style={styles.label}>Driver ID (Optional)</Text>
+          <AppTextInput
+            placeholder="Enter driver user ID"
+            value={driverId}
+            onChangeText={setDriverId}
+            left={<AppTextInput.Icon icon="account-tie" />}
+          />
+        </View>
 
-      <TouchableOpacity 
-        style={[styles.saveBtn, loading && styles.disabledBtn]} 
-        onPress={handleSave}
-        disabled={loading}
-      >
-        {loading ? (
-          <ActivityIndicator color="#fff" />
-        ) : (
-          <Text style={styles.saveBtnText}>{isEditing ? 'Update Route' : 'Create Route'}</Text>
-        )}
-      </TouchableOpacity>
-    </ScrollView>
+        <AppButton
+          label={isEditing ? 'Update Route' : 'Create Route'}
+          onPress={handleSave}
+          loading={loading}
+          disabled={loading}
+          variant="warning"
+          icon={isEditing ? 'map-marker-check' : 'map-marker-plus'}
+          style={styles.saveBtn}
+        />
+      </ScrollView>
+
+      <Snackbar
+        visible={snackbar.visible}
+        onDismiss={() => setSnackbar(s => ({ ...s, visible: false }))}
+        style={{ backgroundColor: snackbar.error ? dark.errorDark : dark.success }}>
+        {snackbar.message}
+      </Snackbar>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0f172a' },
+  safe: { flex: 1, backgroundColor: dark.bg },
+  container: { flex: 1 },
   content: { padding: 24 },
   formGroup: { marginBottom: 20 },
-  label: { fontSize: 14, color: '#94a3b8', marginBottom: 8, fontWeight: '600' },
-  input: {
-    backgroundColor: '#1e293b',
-    borderRadius: 8,
-    padding: 12,
-    color: '#f1f5f9',
-    fontSize: 16,
-    borderWidth: 1,
-    borderColor: '#334155',
-    textAlignVertical: 'top',
-  },
-  hint: { fontSize: 12, color: '#64748b', marginTop: 4 },
-  saveBtn: {
-    backgroundColor: '#f59e0b',
-    paddingVertical: 16,
-    borderRadius: 8,
-    alignItems: 'center',
-    marginTop: 10,
-  },
-  disabledBtn: { opacity: 0.7 },
-  saveBtnText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
+  label: { color: dark.textSecondary, marginBottom: 8, fontWeight: '600' },
+  textArea: { minHeight: 100 },
+  hint: { color: dark.textMuted, marginTop: 6 },
+  saveBtn: { marginTop: 12 },
 });

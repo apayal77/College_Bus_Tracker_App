@@ -1,17 +1,14 @@
 import React, { useEffect, useState } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  FlatList,
-  TouchableOpacity,
-  Alert,
-  ActivityIndicator,
-} from 'react-native';
+import { View, StyleSheet, FlatList, Alert, TouchableOpacity } from 'react-native';
+import { Text, ActivityIndicator, FAB, Surface } from 'react-native-paper';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import firestore from '@react-native-firebase/firestore';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
 import { AppStackParamList } from '../../navigation/AppNavigator';
+import AppIcon, { ICONS } from '../../components/AppIcon';
+import AppCard from '../../components/AppCard';
+import { dark } from '../../theme/colors';
 
 type ManageUsersScreenProps = {
   navigation: NativeStackNavigationProp<AppStackParamList, 'ManageUsers'>;
@@ -67,33 +64,44 @@ export default function ManageUsersScreen({ navigation, route }: ManageUsersScre
   };
 
   const renderItem = ({ item }: { item: any }) => (
-    <View style={styles.userCard}>
-      <View style={styles.userInfo}>
-        <Text style={styles.userName}>{item.name}</Text>
-        <Text style={styles.userPhone}>{item.phone}</Text>
-        {item.routeAssigned && (
-          <Text style={styles.userRoute}>Route: {item.routeAssigned}</Text>
-        )}
+    <AppCard accentColor={role === 'student' ? dark.student : dark.driver} elevation={2}>
+      <View style={styles.userRow}>
+        <View style={styles.userInfo}>
+          <Text variant="titleMedium" style={styles.userName}>{item.name}</Text>
+          <View style={styles.detailRow}>
+            <AppIcon {...ICONS.phone} size={12} color={dark.textMuted} />
+            <Text variant="bodySmall" style={styles.userPhone}>{item.phone}</Text>
+          </View>
+          {item.routeAssigned && (
+            <View style={styles.detailRow}>
+              <AppIcon {...ICONS.createRoute} size={12} color={dark.primaryLight} />
+              <Text variant="bodySmall" style={styles.userRoute}>Route: {item.routeAssigned}</Text>
+            </View>
+          )}
+        </View>
+        <View style={styles.actions}>
+          <TouchableOpacity
+            onPress={() => navigation.navigate('UserForm', { user: item, role })}
+            style={styles.actionBtn}>
+            <AppIcon {...ICONS.editUser} size={20} color={dark.primaryLight} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => handleDelete(item.id, item.name)}
+            style={styles.actionBtn}>
+            <AppIcon {...ICONS.deleteUser} size={20} color={dark.error} />
+          </TouchableOpacity>
+        </View>
       </View>
-      <View style={styles.actions}>
-        <TouchableOpacity
-          onPress={() => navigation.navigate('UserForm', { user: item, role })}
-          style={styles.editBtn}>
-          <Text style={styles.btnText}>Edit</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          onPress={() => handleDelete(item.id, item.name)}
-          style={styles.deleteBtn}>
-          <Text style={styles.btnText}>Delete</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
+    </AppCard>
   );
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.safe} edges={['bottom']}>
       {loading ? (
-        <ActivityIndicator size="large" color="#2563eb" style={styles.loader} />
+        <View style={styles.loader}>
+          <ActivityIndicator size="large" color={dark.primary} />
+          <Text style={{ marginTop: 12, color: dark.textSecondary }}>Loading users...</Text>
+        </View>
       ) : (
         <FlatList
           data={users}
@@ -101,71 +109,42 @@ export default function ManageUsersScreen({ navigation, route }: ManageUsersScre
           renderItem={renderItem}
           contentContainerStyle={styles.list}
           ListEmptyComponent={
-            <Text style={styles.emptyText}>No {role}s found.</Text>
+            <View style={styles.empty}>
+              <AppIcon name="account-off" type="MaterialCommunityIcons" size={48} color={dark.border} />
+              <Text style={styles.emptyText}>No {role}s found.</Text>
+            </View>
           }
         />
       )}
-      <TouchableOpacity
-        style={styles.fab}
-        onPress={() => navigation.navigate('UserForm', { role })}>
-        <Text style={styles.fabText}>+</Text>
-      </TouchableOpacity>
-    </View>
+      <FAB
+        icon="plus"
+        label={`Add ${role}`}
+        style={[styles.fab, { backgroundColor: role === 'student' ? dark.student : dark.driver }]}
+        onPress={() => navigation.navigate('UserForm', { role })}
+        color="#fff"
+      />
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0f172a' },
-  loader: { flex: 1, justifyContent: 'center' },
-  list: { padding: 16 },
-  userCard: {
-    backgroundColor: '#1e293b',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    borderLeftWidth: 4,
-    borderLeftColor: '#3b82f6',
-  },
+  safe: { flex: 1, backgroundColor: dark.bg },
+  loader: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  list: { padding: 16, paddingBottom: 100 },
+  userRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   userInfo: { flex: 1 },
-  userName: { fontSize: 16, fontWeight: 'bold', color: '#f1f5f9' },
-  userPhone: { fontSize: 14, color: '#94a3b8', marginTop: 4 },
-  userRoute: { fontSize: 12, color: '#60a5fa', marginTop: 4 },
-  actions: { flexDirection: 'row' },
-  editBtn: {
-    backgroundColor: '#1e293b',
-    borderWidth: 1,
-    borderColor: '#3b82f6',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 6,
-    marginRight: 8,
-  },
-  deleteBtn: {
-    backgroundColor: '#dc2626',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 6,
-  },
-  btnText: { color: '#fff', fontSize: 12, fontWeight: '600' },
-  emptyText: { textAlign: 'center', color: '#94a3b8', marginTop: 40 },
+  userName: { color: dark.textPrimary, fontWeight: '700' },
+  detailRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 },
+  userPhone: { color: dark.textSecondary },
+  userRoute: { color: dark.primaryLight, fontWeight: '600' },
+  actions: { flexDirection: 'row', gap: 10 },
+  actionBtn: { padding: 8, backgroundColor: dark.surfaceVariant, borderRadius: 8 },
+  empty: { flex: 1, alignItems: 'center', marginTop: 100, gap: 12 },
+  emptyText: { textAlign: 'center', color: dark.textMuted },
   fab: {
     position: 'absolute',
-    right: 20,
-    bottom: 20,
-    backgroundColor: '#2563eb',
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    justifyContent: 'center',
-    alignItems: 'center',
-    elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
+    right: 16,
+    bottom: 16,
+    borderRadius: 16,
   },
-  fabText: { color: '#fff', fontSize: 32, fontWeight: '300' },
 });

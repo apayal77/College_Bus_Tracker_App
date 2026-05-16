@@ -57,7 +57,24 @@ export default function OpenStreetMap({
           // 2. Route Polyline
           const pathPoints = ${JSON.stringify(routePath.map(p => [p.lat, p.lng]))};
           if (pathPoints.length > 0) {
-            L.polyline(pathPoints, { color: '#4ade80', weight: 5, opacity: 0.7 }).addTo(map);
+            // Main Route Path (Blue like Google Maps)
+            L.polyline(pathPoints, { 
+              color: '#3b82f6', 
+              weight: 8, 
+              opacity: 0.8,
+              lineJoin: 'round'
+            }).addTo(map);
+
+            // Border for the path (White outline)
+            L.polyline(pathPoints, { 
+              color: '#ffffff', 
+              weight: 12, 
+              opacity: 0.3,
+              lineJoin: 'round'
+            }).addTo(map);
+            
+            // Auto-zoom to fit route
+            map.fitBounds(pathPoints, { padding: [50, 50] });
           }
 
           // 3. Student Stop Marker

@@ -1,71 +1,64 @@
 import React, { useState } from 'react';
 import {
   View,
-  Text,
   StyleSheet,
-  TextInput,
-  TouchableOpacity,
-  SafeAreaView,
-  ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  Alert,
 } from 'react-native';
+import { Text, ActivityIndicator, Snackbar } from 'react-native-paper';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import auth from '@react-native-firebase/auth';
 import firestore from '@react-native-firebase/firestore';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { AuthStackParamList } from '../../navigation/AppNavigator';
+import { useAuth } from '../../context/AuthContext';
+import AppIcon, { ICONS } from '../../components/AppIcon';
+import AppButton from '../../components/AppButton';
+import AppTextInput from '../../components/AppTextInput';
+import { dark } from '../../theme/colors';
 
 type LoginScreenNavProp = NativeStackNavigationProp<AuthStackParamList, 'Login'>;
-
-interface Props {
-  navigation: LoginScreenNavProp;
-}
+interface Props { navigation: LoginScreenNavProp; }
 
 export default function LoginScreen({ navigation }: Props) {
+  const { loginByPhone } = useAuth();
   const [phone, setPhone] = useState('');
   const [loading, setLoading] = useState(false);
+  const [snackbar, setSnackbar] = useState({ visible: false, message: '', error: false });
 
-  const handleSendOTP = async () => {
-    // Remove spaces, dashes, and any existing +91 to get the raw 10 digits
+  const showSnack = (message: string, error = false) =>
+    setSnackbar({ visible: true, message, error });
+
+  const handleLogin = async () => {
     const cleaned = phone.replace(/\s+/g, '').replace(/^\+91/, '').replace(/^91/, '');
-    
+
     if (!cleaned || cleaned.length !== 10) {
-      Alert.alert('Invalid Number', 'Please enter a valid 10-digit phone number.');
+      showSnack('Please enter a valid 10-digit phone number.', true);
       return;
     }
 
     const fullPhone = `+91${cleaned}`;
-
     setLoading(true);
+    
     try {
-      // 1. Check if this phone number is pre-approved in Firestore
-      const snapshot = await firestore()
-        .collection('users')
-        .where('phone', '==', fullPhone)
-        .get();
+      console.log('[Login] Direct Login Request:', fullPhone);
+      const success = await loginByPhone(fullPhone);
 
-      if (snapshot.empty) {
+      if (success) {
+        console.log('[Login] Direct Login Successful');
+        // Navigation is handled automatically by RootNavigator watching user state
+      } else {
+        console.warn('[Login] Phone not found in database');
         Alert.alert(
-          'Access Denied',
-          'Your phone number is not registered. Please contact the admin.',
+          'Registration Required',
+          'This phone number (' + fullPhone + ') was not found in the database. Please make sure the Admin has added you.'
         );
-        setLoading(false);
-        return;
       }
-
-      // 2. Send OTP via Firebase
-      const confirmation = await auth().signInWithPhoneNumber(fullPhone);
-
-      // 3. Navigate to OTP screen with confirmation and phone
-      navigation.navigate('OTPVerification', {
-        confirmation,
-        phone: fullPhone,
-      });
     } catch (error: any) {
-      console.error('Send OTP Error:', error);
-      Alert.alert('Error', error?.message || 'Failed to send OTP. Try again.');
+      console.error('[Login] Unexpected Error:', error);
+      Alert.alert('Login Failed', 'An unexpected error occurred. Please check your internet connection.');
     } finally {
       setLoading(false);
     }
@@ -76,145 +69,118 @@ export default function LoginScreen({ navigation }: Props) {
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.flex}>
-        <ScrollView contentContainerStyle={styles.container}>
-          {/* Header */}
+        <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+
+          {/* ── Header ──────────────────────────────────────────── */}
           <View style={styles.header}>
             <View style={styles.iconContainer}>
-              <Text style={styles.icon}>🚌</Text>
+              <AppIcon {...ICONS.bus} size={46} color={dark.primaryLight} />
             </View>
-            <Text style={styles.title}>College Bus Tracker</Text>
-            <Text style={styles.subtitle}>Enter your registered phone number to continue</Text>
+            <Text variant="headlineMedium" style={styles.title}>College Bus Tracker</Text>
+            <Text variant="bodyMedium" style={styles.subtitle}>
+              Log in with your registered phone number
+            </Text>
           </View>
 
-          {/* Form */}
-          <View style={styles.form}>
-            <Text style={styles.label}>Phone Number</Text>
+          {/* ── Form Card ───────────────────────────────────────── */}
+          <View style={styles.formCard}>
+
+            <View style={styles.labelRow}>
+              <AppIcon {...ICONS.phone} size={15} color={dark.textSecondary} />
+              <Text variant="labelLarge" style={styles.label}>Phone Number</Text>
+            </View>
+
             <View style={styles.inputRow}>
               <View style={styles.countryCode}>
                 <Text style={styles.countryCodeText}>+91</Text>
               </View>
-              <TextInput
-                style={styles.input}
-                placeholder="Enter 10-digit number"
-                placeholderTextColor="#aaa"
+              <AppTextInput
+                placeholder="10-digit number"
                 keyboardType="phone-pad"
                 maxLength={10}
                 value={phone}
                 onChangeText={setPhone}
+                style={styles.input}
+                left={undefined}
               />
             </View>
 
-            <TouchableOpacity
-              style={[styles.button, loading && styles.buttonDisabled]}
-              onPress={handleSendOTP}
-              disabled={loading}>
-              {loading ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={styles.buttonText}>Send OTP</Text>
-              )}
-            </TouchableOpacity>
+            <AppButton
+              label={loading ? '' : 'Login'}
+              onPress={handleLogin}
+              icon="login"
+              loading={loading}
+              disabled={loading}
+              style={styles.btn}
+            />
 
-            <Text style={styles.note}>
-              Only admin-approved numbers can log in.
+            <Text variant="bodySmall" style={styles.note}>
+              Enter the number registered by your college admin.
             </Text>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      <Snackbar
+        visible={snackbar.visible}
+        onDismiss={() => setSnackbar(s => ({ ...s, visible: false }))}
+        duration={3000}
+        style={{ backgroundColor: snackbar.error ? dark.errorDark : dark.success }}
+        action={{ label: 'OK', onPress: () => setSnackbar(s => ({ ...s, visible: false })) }}>
+        {snackbar.message}
+      </Snackbar>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#0f172a' },
+  safe: { flex: 1, backgroundColor: dark.bg },
   flex: { flex: 1 },
-  container: {
-    flexGrow: 1,
-    justifyContent: 'center',
-    padding: 28,
-  },
-  header: {
-    alignItems: 'center',
-    marginBottom: 48,
-  },
+  container: { flexGrow: 1, justifyContent: 'center', padding: 28 },
+
+  // ── Header ────────────────────────────────────────────────────
+  header: { alignItems: 'center', marginBottom: 40 },
   iconContainer: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: '#1e3a5f',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  icon: { fontSize: 40 },
-  title: {
-    fontSize: 26,
-    fontWeight: 'bold',
-    color: '#f1f5f9',
-    textAlign: 'center',
-  },
-  subtitle: {
-    fontSize: 14,
-    color: '#94a3b8',
-    marginTop: 8,
-    textAlign: 'center',
-    lineHeight: 20,
-  },
-  form: {
-    backgroundColor: '#1e293b',
-    borderRadius: 16,
-    padding: 24,
-  },
-  label: {
-    fontSize: 14,
-    color: '#94a3b8',
-    marginBottom: 8,
-    fontWeight: '600',
-  },
-  inputRow: {
-    flexDirection: 'row',
+    width: 90,
+    height: 90,
+    borderRadius: 45,
+    backgroundColor: dark.surface,
     borderWidth: 1,
-    borderColor: '#334155',
-    borderRadius: 10,
-    overflow: 'hidden',
+    borderColor: dark.border,
+    justifyContent: 'center',
+    alignItems: 'center',
     marginBottom: 20,
-    backgroundColor: '#0f172a',
+    elevation: 6,
+    shadowColor: dark.primary,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.35,
+    shadowRadius: 12,
   },
+  title: { color: dark.textPrimary, fontWeight: '800', textAlign: 'center' },
+  subtitle: { color: dark.textSecondary, marginTop: 8, textAlign: 'center', lineHeight: 20 },
+
+  // ── Form ──────────────────────────────────────────────────────
+  formCard: {
+    backgroundColor: dark.surface,
+    borderRadius: 20,
+    padding: 24,
+    borderWidth: 1,
+    borderColor: dark.border,
+  },
+  labelRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10 },
+  label: { color: dark.textSecondary },
+  inputRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 20, gap: 8 },
   countryCode: {
+    height: 56,
     paddingHorizontal: 14,
     justifyContent: 'center',
-    backgroundColor: '#1e3a5f',
-    borderRightWidth: 1,
-    borderRightColor: '#334155',
-  },
-  countryCodeText: {
-    color: '#60a5fa',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  input: {
-    flex: 1,
-    color: '#f1f5f9',
-    fontSize: 16,
-    paddingHorizontal: 14,
-    paddingVertical: 14,
-  },
-  button: {
-    backgroundColor: '#2563eb',
-    paddingVertical: 16,
+    backgroundColor: dark.surfaceVariant,
+    borderWidth: 1,
+    borderColor: dark.border,
     borderRadius: 10,
-    alignItems: 'center',
   },
-  buttonDisabled: { backgroundColor: '#1e3a5f' },
-  buttonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  note: {
-    color: '#64748b',
-    fontSize: 12,
-    textAlign: 'center',
-    marginTop: 16,
-  },
+  countryCodeText: { color: dark.primaryLight, fontSize: 16, fontWeight: 'bold' },
+  input: { flex: 1 },
+  btn: { marginBottom: 4 },
+  note: { color: dark.textMuted, textAlign: 'center', marginTop: 14 },
 });

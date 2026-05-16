@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { collection, onSnapshot, doc, deleteDoc, addDoc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc, deleteDoc, addDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { Plus, Trash2, Edit2, Search, MapPin, X } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, useMapEvents, Popup } from 'react-leaflet';
@@ -41,6 +41,7 @@ const MapEvents = ({ onMapClick }: { onMapClick: (lat: number, lng: number) => v
 
 const ManageRoutes = () => {
   const [routes, setRoutes] = useState<any[]>([]);
+  const [drivers, setDrivers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [showModal, setShowModal] = useState(false);
@@ -48,12 +49,24 @@ const ManageRoutes = () => {
   const [selectedStops, setSelectedStops] = useState<Stop[]>([]);
 
   useEffect(() => {
-    const unsubscribe = onSnapshot(collection(db, 'routes'), (snapshot) => {
+    // Fetch Routes
+    const unsubscribeRoutes = onSnapshot(collection(db, 'routes'), (snapshot) => {
       const routeList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setRoutes(routeList);
       setLoading(false);
     });
-    return () => unsubscribe();
+
+    // Fetch Drivers for the dropdown
+    const qDrivers = query(collection(db, 'users'), where('role', '==', 'driver'));
+    const unsubscribeDrivers = onSnapshot(qDrivers, (snapshot) => {
+      const driverList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setDrivers(driverList);
+    });
+
+    return () => {
+      unsubscribeRoutes();
+      unsubscribeDrivers();
+    };
   }, []);
 
   const handleMapClick = (lat: number, lng: number) => {
@@ -92,6 +105,12 @@ const ManageRoutes = () => {
   const filteredRoutes = routes.filter(route => 
     route.routeName?.toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  const getDriverName = (driverId: string) => {
+    if (!driverId) return 'Unassigned';
+    const driver = drivers.find(d => d.id === driverId);
+    return driver ? driver.name : driverId;
+  };
 
   return (
     <div>
@@ -137,7 +156,7 @@ const ManageRoutes = () => {
               </div>
               
               <h3 className="text-xl font-bold text-white mb-2">{route.routeName}</h3>
-              <p className="text-sm text-slate-400 mb-4">Driver: <span className="text-emerald-500">{route.driverId || 'Unassigned'}</span></p>
+              <p className="text-sm text-slate-400 mb-4">Driver: <span className="text-emerald-500">{getDriverName(route.driverId)}</span></p>
               
               <div className="space-y-2">
                 <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Stops ({route.stops?.length || 0})</p>
@@ -169,21 +188,26 @@ const ManageRoutes = () => {
                   <label className="block text-sm font-medium text-slate-400 mb-1">Route Name</label>
                   <input 
                     type="text" required
-                    className="w-full"
+                    className="w-full bg-[#0f172a] border-slate-700 rounded-lg text-white"
                     placeholder="e.g. Route 01 - North"
                     value={formData.routeName}
                     onChange={(e) => setFormData({...formData, routeName: e.target.value})}
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-400 mb-1">Driver ID (Optional)</label>
-                  <input 
-                    type="text"
-                    className="w-full"
-                    placeholder="e.g. driver_john_id"
+                  <label className="block text-sm font-medium text-slate-400 mb-1">Assign Driver</label>
+                  <select 
+                    className="w-full bg-[#0f172a] border-slate-700 rounded-lg text-white p-2.5"
                     value={formData.driverId}
                     onChange={(e) => setFormData({...formData, driverId: e.target.value})}
-                  />
+                  >
+                    <option value="">Unassigned</option>
+                    {drivers.map(driver => (
+                      <option key={driver.id} value={driver.id}>
+                        {driver.name} ({driver.phone})
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 
                 <div>
@@ -205,8 +229,8 @@ const ManageRoutes = () => {
                 </div>
 
                 <div className="flex gap-4 mt-8">
-                  <button type="button" onClick={() => setShowModal(false)} className="flex-1 bg-slate-800 hover:bg-slate-700">Cancel</button>
-                  <button type="submit" className="flex-1 bg-amber-600 font-bold">Create Route</button>
+                  <button type="button" onClick={() => setShowModal(false)} className="flex-1 bg-slate-800 hover:bg-slate-700 py-3 rounded-xl">Cancel</button>
+                  <button type="submit" className="flex-1 bg-amber-600 font-bold py-3 rounded-xl">Create Route</button>
                 </div>
               </div>
 
@@ -214,7 +238,7 @@ const ManageRoutes = () => {
                 <label className="block text-sm font-medium text-slate-400">Click Map to Add Stops</label>
                 <div className="h-[400px] rounded-xl overflow-hidden border border-slate-700">
                   <MapContainer 
-                    center={[16.65, 74.27]} // Adjust this to your college city
+                    center={[16.65, 74.27]} 
                     zoom={13} 
                     style={{ height: '100%', width: '100%' }}
                   >
