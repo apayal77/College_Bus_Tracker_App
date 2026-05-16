@@ -165,7 +165,10 @@ const Dashboard = () => {
              <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"></span>
              LIVE TRACKING ACTIVE
           </div>
-          <LiveTrackingMap buses={busEntries.map(([_, data]) => data)} routes={routes} />
+          <LiveTrackingMap 
+            buses={activeBuses} 
+            routesData={routes.reduce((acc, r) => ({ ...acc, [r.id]: r }), {})} 
+          />
         </div>
 
         <div className="space-y-6">
