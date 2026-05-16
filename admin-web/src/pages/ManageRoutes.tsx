@@ -43,36 +43,31 @@ const ManageRoutes = () => {
   const [routes, setRoutes] = useState<any[]>([]);
   const [drivers, setDrivers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [searchTerm] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [formData, setFormData] = useState({ routeName: '', driverId: '' });
   const [selectedStops, setSelectedStops] = useState<Stop[]>([]);
+  const [tempCoords, setTempCoords] = useState<{lat: number, lng: number} | null>(null);
+  const [newStopName, setNewStopName] = useState('');
 
   useEffect(() => {
-    // Fetch Routes
-    const unsubscribeRoutes = onSnapshot(collection(db, 'routes'), (snapshot) => {
-      const routeList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setRoutes(routeList);
-      setLoading(false);
-    });
-
-    // Fetch Drivers for the dropdown
-    const qDrivers = query(collection(db, 'users'), where('role', '==', 'driver'));
-    const unsubscribeDrivers = onSnapshot(qDrivers, (snapshot) => {
-      const driverList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setDrivers(driverList);
-    });
-
-    return () => {
-      unsubscribeRoutes();
-      unsubscribeDrivers();
-    };
+    // ... (Keep existing onSnapshot logic)
   }, []);
 
   const handleMapClick = (lat: number, lng: number) => {
-    const stopName = window.prompt("Enter name for this stop (e.g., Main Gate):");
-    if (stopName) {
-      setSelectedStops([...selectedStops, { name: stopName, latitude: lat, longitude: lng }]);
+    setTempCoords({ lat, lng });
+    setNewStopName('');
+  };
+
+  const confirmAddStop = () => {
+    if (tempCoords && newStopName.trim()) {
+      setSelectedStops([...selectedStops, { 
+        name: newStopName.trim(), 
+        latitude: tempCoords.lat, 
+        longitude: tempCoords.lng 
+      }]);
+      setTempCoords(null);
+      setNewStopName('');
     }
   };
 
@@ -114,113 +109,97 @@ const ManageRoutes = () => {
 
   return (
     <div>
-      <header className="flex justify-between items-center mb-8">
+      <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
         <div>
           <h1 className="text-3xl font-bold text-white">Manage Routes</h1>
           <p className="text-slate-400 mt-1">Define bus paths and assign drivers.</p>
         </div>
-        <button 
-          onClick={() => setShowModal(true)}
-          className="flex items-center gap-2 bg-amber-600 px-6 py-3 rounded-xl font-bold hover:bg-amber-500 transition-all shadow-lg shadow-amber-600/20"
-        >
-          <Plus size={20} />
-          Create Route
-        </button>
+        <div className="flex w-full md:w-auto gap-4">
+           <input 
+              type="text"
+              placeholder="Search routes..."
+              className="bg-slate-900 border border-slate-700 rounded-xl px-4 py-2 text-white flex-1 md:w-64"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+           />
+           <button 
+             onClick={() => setShowModal(true)}
+             className="flex items-center gap-2 bg-amber-600 px-6 py-3 rounded-xl font-bold hover:bg-amber-500 transition-all shadow-lg shadow-amber-600/20 whitespace-nowrap"
+           >
+             <Plus size={20} />
+             Create Route
+           </button>
+        </div>
       </header>
 
       {/* List View */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {loading ? (
-          <p className="text-slate-500 col-span-2 text-center py-10">Loading...</p>
-        ) : filteredRoutes.length === 0 ? (
-          <p className="text-slate-500 col-span-2 text-center py-10">No routes found.</p>
-        ) : (
-          filteredRoutes.map((route) => (
-            <div key={route.id} className="card relative group">
-              <div className="flex justify-between items-start mb-4">
-                <div className="bg-amber-500/10 p-3 rounded-xl">
-                  <MapPin className="text-amber-500" size={24} />
-                </div>
-                <div className="flex gap-2">
-                  <button 
-                    onClick={() => {
-                        if (window.confirm('Are you sure you want to delete this route?')) {
-                            deleteDoc(doc(db, 'routes', route.id));
-                        }
-                    }}
-                    className="p-2 text-slate-400 hover:text-red-400 bg-transparent"
-                  >
-                    <Trash2 size={18} />
-                  </button>
-                </div>
-              </div>
-              
-              <h3 className="text-xl font-bold text-white mb-2">{route.routeName}</h3>
-              <p className="text-sm text-slate-400 mb-4">Driver: <span className="text-emerald-500">{getDriverName(route.driverId)}</span></p>
-              
-              <div className="space-y-2">
-                <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Stops ({route.stops?.length || 0})</p>
-                <div className="flex flex-wrap gap-2">
-                  {route.stops?.map((stop: any, idx: number) => (
-                    <span key={idx} className="px-2 py-1 bg-slate-800 text-slate-300 rounded text-xs">
-                      {typeof stop === 'string' ? stop : stop.name}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            </div>
-          ))
-        )}
-      </div>
+      {/* ... (Keep list view logic) */}
 
       {/* Create Route Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-6 z-50">
-          <div className="card w-full max-w-4xl shadow-2xl max-h-[90vh] overflow-y-auto">
+          <div className="card w-full max-w-5xl shadow-2xl max-h-[95vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-2xl font-bold">Create New Route</h2>
               <button onClick={() => setShowModal(false)} className="text-slate-400 hover:text-white"><X /></button>
             </div>
             
-            <form onSubmit={handleAddRoute} className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-slate-400 mb-1">Route Name</label>
-                  <input 
-                    type="text" required
-                    className="w-full bg-[#0f172a] border-slate-700 rounded-lg text-white"
-                    placeholder="e.g. Route 01 - North"
-                    value={formData.routeName}
-                    onChange={(e) => setFormData({...formData, routeName: e.target.value})}
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-400 mb-1">Assign Driver</label>
-                  <select 
-                    className="w-full bg-[#0f172a] border-slate-700 rounded-lg text-white p-2.5"
-                    value={formData.driverId}
-                    onChange={(e) => setFormData({...formData, driverId: e.target.value})}
-                  >
-                    <option value="">Unassigned</option>
-                    {drivers.map(driver => (
-                      <option key={driver.id} value={driver.id}>
-                        {driver.name} ({driver.phone})
-                      </option>
-                    ))}
-                  </select>
+            <form onSubmit={handleAddRoute} className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              <div className="space-y-6">
+                <div className="card bg-slate-800/30 border-slate-700/50">
+                  <h3 className="text-sm font-bold text-amber-500 uppercase tracking-widest mb-4">Route Info</h3>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-400 mb-1">Route Name</label>
+                      <input 
+                        type="text" required
+                        className="w-full bg-slate-900 border border-slate-700 rounded-lg text-white p-2.5 focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 outline-none transition-all"
+                        placeholder="e.g. Route 01 - North"
+                        value={formData.routeName}
+                        onChange={(e) => setFormData({...formData, routeName: e.target.value})}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-400 mb-1">Assign Driver</label>
+                      <select 
+                        className="w-full bg-slate-900 border border-slate-700 rounded-lg text-white p-2.5 focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 outline-none transition-all"
+                        value={formData.driverId}
+                        onChange={(e) => setFormData({...formData, driverId: e.target.value})}
+                      >
+                        <option value="">Unassigned</option>
+                        {drivers.map(driver => (
+                          <option key={driver.id} value={driver.id}>
+                            {driver.name} ({driver.phone})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
                 </div>
                 
-                <div>
-                  <label className="block text-sm font-medium text-slate-400 mb-1">Added Stops ({selectedStops.length})</label>
-                  <div className="bg-[#0f172a] rounded-lg p-3 space-y-2 min-h-[150px] max-h-[250px] overflow-y-auto border border-slate-800">
+                <div className="card bg-slate-800/30 border-slate-700/50">
+                  <div className="flex justify-between items-center mb-4">
+                    <h3 className="text-sm font-bold text-amber-500 uppercase tracking-widest">Added Stops ({selectedStops.length})</h3>
+                    {selectedStops.length > 0 && (
+                      <button type="button" onClick={() => setSelectedStops([])} className="text-[10px] text-red-400 hover:underline">Clear All</button>
+                    )}
+                  </div>
+                  <div className="space-y-2 min-h-[150px] max-h-[250px] overflow-y-auto pr-2 custom-scrollbar">
                     {selectedStops.length === 0 ? (
-                      <p className="text-slate-500 text-xs italic">Click on the map to add stops...</p>
+                      <div className="h-32 flex flex-col items-center justify-center border-2 border-dashed border-slate-700 rounded-xl text-slate-500">
+                        <MapPin size={24} className="mb-2 opacity-20" />
+                        <p className="text-xs">No stops added yet.</p>
+                        <p className="text-[10px] mt-1">Click the map to begin.</p>
+                      </div>
                     ) : (
                       selectedStops.map((stop, i) => (
-                        <div key={i} className="flex justify-between items-center bg-slate-800 p-2 rounded text-sm">
-                          <span className="truncate mr-2">{i+1}. {stop.name}</span>
-                          <button type="button" onClick={() => removeStop(i)} className="text-red-400 hover:text-red-300 p-1 bg-transparent">
-                            <X size={14} />
+                        <div key={i} className="flex justify-between items-center bg-slate-900/50 p-3 rounded-lg border border-slate-700/30 group">
+                          <div className="flex items-center gap-3">
+                             <span className="w-5 h-5 flex items-center justify-center bg-amber-500 text-black rounded-full text-[10px] font-bold">{i+1}</span>
+                             <span className="text-sm text-slate-200 font-medium">{stop.name}</span>
+                          </div>
+                          <button type="button" onClick={() => removeStop(i)} className="text-slate-500 hover:text-red-400 transition-colors">
+                            <X size={16} />
                           </button>
                         </div>
                       ))
@@ -228,15 +207,19 @@ const ManageRoutes = () => {
                   </div>
                 </div>
 
-                <div className="flex gap-4 mt-8">
-                  <button type="button" onClick={() => setShowModal(false)} className="flex-1 bg-slate-800 hover:bg-slate-700 py-3 rounded-xl">Cancel</button>
-                  <button type="submit" className="flex-1 bg-amber-600 font-bold py-3 rounded-xl">Create Route</button>
+                <div className="flex gap-4">
+                  <button type="button" onClick={() => setShowModal(false)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-white font-bold py-3 rounded-xl transition-all">Cancel</button>
+                  <button type="submit" className="flex-1 bg-amber-600 hover:bg-amber-500 text-white font-bold py-3 rounded-xl shadow-lg shadow-amber-600/20 transition-all">Create Route</button>
                 </div>
               </div>
 
-              <div className="space-y-2">
-                <label className="block text-sm font-medium text-slate-400">Click Map to Add Stops</label>
-                <div className="h-[400px] rounded-xl overflow-hidden border border-slate-700">
+              <div className="space-y-4">
+                <div className="flex justify-between items-end">
+                   <label className="block text-sm font-medium text-slate-400">Add Stops on Map</label>
+                   {tempCoords && <span className="text-[10px] text-amber-500 animate-pulse font-bold">PIN DROPPED - NAME IT BELOW</span>}
+                </div>
+                
+                <div className="h-[400px] rounded-2xl overflow-hidden border border-slate-700 shadow-inner relative">
                   <MapContainer 
                     center={[16.65, 74.27]} 
                     zoom={13} 
@@ -244,13 +227,51 @@ const ManageRoutes = () => {
                   >
                     <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
                     <MapEvents onMapClick={handleMapClick} />
+                    
+                    {/* Existing Stops */}
                     {selectedStops.map((stop, i) => (
                       <Marker key={i} position={[stop.latitude, stop.longitude]} icon={stopIcon}>
                         <Popup>{stop.name}</Popup>
                       </Marker>
                     ))}
+
+                    {/* New Temporary Stop */}
+                    {tempCoords && (
+                      <Marker position={[tempCoords.lat, tempCoords.lng]} icon={stopIcon} />
+                    )}
                   </MapContainer>
+
+                  {/* Inline Stop Name Input overlay */}
+                  {tempCoords && (
+                    <div className="absolute bottom-4 left-4 right-4 z-[1000] bg-slate-900/95 backdrop-blur p-4 rounded-xl border border-amber-500/50 shadow-2xl flex gap-2">
+                       <input 
+                         autoFocus
+                         type="text"
+                         placeholder="Enter stop name..."
+                         className="flex-1 bg-slate-800 border-none rounded-lg text-white text-sm px-4 outline-none focus:ring-1 focus:ring-amber-500"
+                         value={newStopName}
+                         onChange={(e) => setNewStopName(e.target.value)}
+                         onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), confirmAddStop())}
+                       />
+                       <button 
+                         type="button"
+                         onClick={confirmAddStop}
+                         disabled={!newStopName.trim()}
+                         className="bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white text-xs font-bold px-4 py-2 rounded-lg transition-all"
+                       >
+                         Add Stop
+                       </button>
+                       <button 
+                         type="button"
+                         onClick={() => setTempCoords(null)}
+                         className="bg-slate-700 hover:bg-slate-600 text-white p-2 rounded-lg"
+                       >
+                         <X size={16} />
+                       </button>
+                    </div>
+                  )}
                 </div>
+                <p className="text-[10px] text-slate-500 italic text-center">Tip: Click anywhere on the map to drop a pin, then name it to add it to the list.</p>
               </div>
             </form>
           </div>
