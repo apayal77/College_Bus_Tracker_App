@@ -5,7 +5,14 @@ import { Radio } from 'lucide-react';
 import { io, Socket } from 'socket.io-client';
 import LiveTrackingMap from '../components/LiveTrackingMap';
 
-const SOCKET_URL = 'https://college-bus-tracker-app.onrender.com';
+const getSocketURL = () => {
+  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+    return 'http://localhost:5000';
+  }
+  return 'https://college-bus-tracker-app.onrender.com';
+};
+
+const SOCKET_URL = getSocketURL();
 
 interface BusUpdate {
   routeId: string;
@@ -20,6 +27,7 @@ const LiveMonitor = () => {
   const [activeBuses, setActiveBuses] = useState<Record<string, BusUpdate>>({});
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting');
   const routeNamesRef = useRef<Record<string, string>>({});
+  const allRoutesRef = useRef<Record<string, any>>({});
   const socketRef = useRef<Socket | null>(null);
 
   useEffect(() => {
@@ -30,13 +38,17 @@ const LiveMonitor = () => {
           console.error('[LiveMonitor] Firebase Environment Variables are MISSING!');
         }
 
-        // 2. Fetch Route Names
+        // 2. Fetch Route Data
         const routesSnap = await getDocs(collection(db, 'routes'));
         const names: Record<string, string> = {};
+        const fullRoutes: Record<string, any> = {};
         routesSnap.forEach(doc => {
-          names[doc.id] = (doc.data() as any).routeName;
+          const data = doc.data() as any;
+          names[doc.id] = data.routeName;
+          fullRoutes[doc.id] = data;
         });
         routeNamesRef.current = names;
+        allRoutesRef.current = fullRoutes;
 
         // 3. Fetch Initial Active Trips
         const activeTripsSnap = await getDocs(query(collection(db, 'trips'), where('status', '==', 'active')));
@@ -63,11 +75,13 @@ const LiveMonitor = () => {
     initMonitor();
 
     // 4. Socket Setup
+    console.log(`[Socket] Connecting to: ${SOCKET_URL}`);
     socketRef.current = io(SOCKET_URL, {
       transports: ['websocket'],
     });
 
     socketRef.current.on('connect', () => {
+      console.log(`[Socket] Monitor connected to ${SOCKET_URL}`);
       setConnectionStatus('connected');
       socketRef.current?.emit('joinRoute', 'admin');
     });
@@ -85,6 +99,7 @@ const LiveMonitor = () => {
     });
 
     socketRef.current.on('driverStatus', (data: { routeId: string, online: boolean }) => {
+      console.log(`[LiveMonitor] Driver status for ${data.routeId}: ${data.online ? 'ONLINE' : 'OFFLINE'}`);
       if (!data.online) {
         setActiveBuses(prev => {
           const newState = { ...prev };
@@ -127,7 +142,7 @@ const LiveMonitor = () => {
 
       <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
         <div className="xl:col-span-3">
-          <LiveTrackingMap buses={activeBuses} />
+          <LiveTrackingMap buses={activeBuses} routesData={allRoutesRef.current} />
         </div>
 
         <div className="card h-[500px] flex flex-col bg-slate-900/50 border-slate-800">

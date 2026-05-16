@@ -7,6 +7,7 @@ import firestore from '@react-native-firebase/firestore';
 
 let lastSocketTime = 0;
 let lastFirestoreTime = 0;
+let _isTracking = false;
 // UI callback registered by DriverDashboard for map marker updates
 let _uiLocationCallback: ((lat: number, lng: number) => void) | null = null;
 
@@ -33,22 +34,22 @@ export const LocationService = {
       socketService.joinRoute(routeId);
     };
 
-    if (socket.connected) {
-      onConnect();
-    } else {
-      socket.once('connect', onConnect);
-    }
+    // Handle initial connection and all subsequent reconnections
+    socket.on('connect', onConnect);
+    if (socket.connected) onConnect();
 
     BackgroundGeolocation.onLocation(async (location: Location) => {
+      if (!_isTracking) return;
+      
       const now = Date.now();
       const { latitude, longitude, speed } = location.coords;
 
       // Notify UI (map marker) on every location event
       if (_uiLocationCallback) _uiLocationCallback(latitude, longitude);
 
-      // A. Emit to Socket every 5 seconds for smooth live tracking
-      if (now - lastSocketTime >= 5000) {
-        console.log('Emitting location to socket:', latitude, longitude);
+      // A. Emit to Socket every 3 seconds (reduced from 5s) for better testing responsiveness
+      if (now - lastSocketTime >= 3000) {
+        console.log(`Emitting location [Mock: ${location.mock || 'No'}]:`, latitude, longitude);
         socketService.emitLocation({
           routeId,
           latitude,
@@ -96,34 +97,43 @@ export const LocationService = {
       }
     });
 
+    // Listen for motion changes (Stationary vs Moving)
+    BackgroundGeolocation.onMotionChange((event) => {
+      console.log(`[LocationService] Motion changed: ${event.isMoving ? 'Moving' : 'Stationary'}`);
+    });
+
     // ✅ Use flat (top-level) config keys — nested 'geolocation', 'app', etc. are invalid
     await BackgroundGeolocation.ready({
-      reset: false,
-      desiredAccuracy: BackgroundGeolocation.DesiredAccuracy.High,
-      distanceFilter: 5,
-      stopTimeout: 5,
+      reset: true, // Ensure new settings are applied
+      desiredAccuracy: BackgroundGeolocation.DESIRED_ACCURACY_HIGH,
+      locationUpdateInterval: 1000, // Force update every second for Fake GPS
+      fastestLocationUpdateInterval: 500,
+      distanceFilter: 2, // Very sensitive for testing
+      stationaryRadius: 0, // Disable stationary buffer
       stopOnTerminate: false,
       startOnBoot: true,
-      foregroundService: true,
-      notification: {
-        title: 'Bus Tracking Active',
-        text: 'Sharing your live location with students.',
-      },
       debug: false,
-      logLevel: BackgroundGeolocation.LOG_LEVEL_OFF,
-      batchSync: false,
-      autoSync: false,
+      logLevel: BackgroundGeolocation.LOG_LEVEL_VERBOSE,
+      enableHeadless: true,
+      // Performance/Testing tweaks
+      heartbeatInterval: 10,
+      preventSuspend: true,
+      foregroundService: true,
     });
+
+    return true;
   },
 
   startTracking: async () => {
     console.log('Starting background tracking...');
+    _isTracking = true;
     await BackgroundGeolocation.start();
     await BackgroundGeolocation.changePace(true);
   },
 
   stopTracking: async () => {
     console.log('Stopping background tracking...');
+    _isTracking = false;
     await BackgroundGeolocation.stop();
   },
 

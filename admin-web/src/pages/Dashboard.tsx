@@ -5,7 +5,14 @@ import { Users, Map as MapIcon, Bus, Radio } from 'lucide-react';
 import { io, Socket } from 'socket.io-client';
 import LiveTrackingMap from '../components/LiveTrackingMap';
 
-const SOCKET_URL = 'https://college-bus-tracker-app.onrender.com'; // Admin web runs on the same machine as backend
+const getSocketURL = () => {
+  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+    return 'http://localhost:5000';
+  }
+  return 'https://college-bus-tracker-app.onrender.com';
+};
+
+const SOCKET_URL = getSocketURL();
 
 interface BusUpdate {
   routeId: string;
@@ -26,6 +33,7 @@ const Dashboard = () => {
 
   const [activeBuses, setActiveBuses] = useState<Record<string, BusUpdate>>({});
   const routeNamesRef = useRef<Record<string, string>>({});
+  const allRoutesRef = useRef<Record<string, any>>({});
   const socketRef = useRef<Socket | null>(null);
 
   useEffect(() => {
@@ -38,12 +46,16 @@ const Dashboard = () => {
         const studentsSnap = await getDocs(studentQuery);
         const driversSnap = await getDocs(driverQuery);
 
-        // Map route IDs to Names
+        // Map route IDs to Data
         const names: Record<string, string> = {};
+        const fullRoutes: Record<string, any> = {};
         routesSnap.forEach(doc => {
-          names[doc.id] = doc.data().routeName;
+          const data = doc.data();
+          names[doc.id] = data.routeName;
+          fullRoutes[doc.id] = data;
         });
         routeNamesRef.current = names;
+        allRoutesRef.current = fullRoutes;
 
         // Fetch CURRENTLY ACTIVE TRIPS from Firestore to show immediately
         const activeTripsQuery = query(collection(db, 'trips'), where('status', '==', 'active'));
@@ -79,13 +91,18 @@ const Dashboard = () => {
     fetchData();
 
     // Socket Integration
+    console.log(`[Socket] Connecting to: ${SOCKET_URL}`);
     socketRef.current = io(SOCKET_URL, {
       transports: ['websocket'],
     });
     
     socketRef.current.on('connect', () => {
-      console.log('Admin socket connected');
+      console.log(`[Socket] Admin connected to ${SOCKET_URL}`);
       socketRef.current?.emit('joinRoute', 'admin'); 
+    });
+
+    socketRef.current.on('connect_error', (err) => {
+      console.error(`[Socket] Connection error:`, err);
     });
 
     socketRef.current.on('allBusesUpdate', (data: BusUpdate) => {
@@ -101,8 +118,9 @@ const Dashboard = () => {
       });
     });
 
-    // Handle drivers going offline
+    // Handle drivers going online/offline
     socketRef.current.on('driverStatus', (data: { routeId: string, online: boolean }) => {
+      console.log(`[Dashboard] Driver status for ${data.routeId}: ${data.online ? 'ONLINE' : 'OFFLINE'}`);
       if (!data.online) {
         setActiveBuses(prev => {
           const newState = { ...prev };
@@ -110,6 +128,8 @@ const Dashboard = () => {
           return newState;
         });
       }
+      // Note: We don't add them with 0,0 anymore. 
+      // They will appear as soon as the first 'allBusesUpdate' arrives.
     });
 
     return () => {
@@ -154,7 +174,7 @@ const Dashboard = () => {
               LIVE UPDATES
             </div>
           </div>
-          <LiveTrackingMap buses={activeBuses} />
+          <LiveTrackingMap buses={activeBuses} routesData={allRoutesRef.current} />
         </div>
 
         <div className="card h-full flex flex-col">

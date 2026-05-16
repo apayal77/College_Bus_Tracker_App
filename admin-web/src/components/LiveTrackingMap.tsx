@@ -1,4 +1,4 @@
-import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, Polyline } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 
@@ -21,6 +21,18 @@ const busIcon = new L.Icon({
     popupAnchor: [0, -10],
 });
 
+const stopIcon = new L.Icon({
+    iconUrl: 'https://cdn-icons-png.flaticon.com/512/1483/1483336.png', // Small pin
+    iconSize: [20, 20],
+    iconAnchor: [10, 20],
+});
+
+interface Stop {
+  name: string;
+  latitude: number;
+  longitude: number;
+}
+
 interface BusLocation {
   routeId: string;
   latitude: number;
@@ -31,12 +43,13 @@ interface BusLocation {
 
 interface LiveTrackingMapProps {
   buses: Record<string, BusLocation>;
+  routesData?: Record<string, { stops: Stop[] }>;
 }
 
-const LiveTrackingMap: React.FC<LiveTrackingMapProps> = ({ buses }) => {
-  const busArray = Object.values(buses);
+const LiveTrackingMap: React.FC<LiveTrackingMapProps> = ({ buses, routesData = {} }) => {
+  const busArray = Object.values(buses).filter(b => b.latitude !== 0 && b.longitude !== 0);
   
-  // Default center (e.g., Bangalore) or first bus
+  // Default center (Kolhapur) or first valid bus
   const center: [number, number] = busArray.length > 0 
     ? [busArray[0].latitude, busArray[0].longitude] 
     : [16.65, 74.27];
@@ -53,6 +66,33 @@ const LiveTrackingMap: React.FC<LiveTrackingMapProps> = ({ buses }) => {
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           className="map-tiles-dark"
         />
+
+        {/* 1. Render Route Paths & Stops */}
+        {Object.entries(routesData).map(([routeId, data]) => {
+           const positions = data.stops.map(s => [s.latitude, s.longitude] as [number, number]);
+           if (positions.length < 2) return null;
+
+           return (
+             <React.Fragment key={`route-${routeId}`}>
+                {/* Outer halo */}
+                <Polyline positions={positions} color="white" weight={10} opacity={0.1} />
+                {/* Main path */}
+                <Polyline positions={positions} color="#3b82f6" weight={5} opacity={0.6} />
+                
+                {data.stops.map((stop, idx) => (
+                  <Marker 
+                    key={`stop-${routeId}-${idx}`} 
+                    position={[stop.latitude, stop.longitude]} 
+                    icon={stopIcon}
+                  >
+                    <Popup>Stop: {stop.name}</Popup>
+                  </Marker>
+                ))}
+             </React.Fragment>
+           );
+        })}
+
+        {/* 2. Render Active Buses */}
         {busArray.map((bus) => (
           <Marker 
             key={bus.routeId} 

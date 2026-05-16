@@ -34,6 +34,7 @@ const initSocket = (server) => {
 
   io.on('connection', (socket) => {
     socket.on('joinRoute', (routeId) => {
+      console.log(`[Socket] Client ${socket.id} joined route: ${routeId}`);
       socket.join(routeId);
       if (routeStates.has(routeId)) {
         const state = routeStates.get(routeId);
@@ -64,6 +65,7 @@ const initSocket = (server) => {
 
     socket.on('locationUpdate', async (data) => {
       const { routeId, latitude, longitude, speed } = data;
+      console.log(`[Socket] Received location update for route ${routeId}: ${latitude}, ${longitude}`);
       const update = { latitude, longitude, speed, timestamp: Date.now(), routeId };
 
       if (routeStates.has(routeId)) {
@@ -108,6 +110,7 @@ const initSocket = (server) => {
       }
 
       // Broadcast to specific route room
+      console.log(`[Socket] Broadcasting location for ${routeId} to its room`);
       io.to(routeId).emit('routeLocationUpdate', update);
       
       // NEW: Also broadcast to 'admin' room for global monitoring
@@ -122,7 +125,16 @@ const initSocket = (server) => {
       io.to(routeId).emit('tripStatusChange', { status });
       
       // Update admin room
-      io.to('admin').emit('driverStatus', { routeId, online: status === 'started' });
+      const isOnline = status === 'started';
+      io.to('admin').emit('driverStatus', { routeId, online: isOnline });
+
+      if (routeStates.has(routeId)) {
+        const state = routeStates.get(routeId);
+        if (!isOnline) {
+          console.log(`[Socket] Clearing last location for route ${routeId} as trip ended`);
+          state.lastLocation = null;
+        }
+      }
 
       // Reset notification triggers if a new trip starts
       if (status === 'started') {
