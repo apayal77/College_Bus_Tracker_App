@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
-import { collection, query, where, getDocs } from 'firebase/firestore';
+import { collection, query, where, getDocs, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
-import { Users, Map as MapIcon, Bus, Radio } from 'lucide-react';
+import { Users, Map as MapIcon, Bus, Radio, Activity, MapPin } from 'lucide-react';
 import { io, Socket } from 'socket.io-client';
 import LiveTrackingMap from '../components/LiveTrackingMap';
 
@@ -23,6 +23,18 @@ interface BusUpdate {
   routeName?: string;
 }
 
+const StatCard = ({ title, value, icon, color }: any) => (
+  <div className="card flex items-center justify-between border-slate-800 bg-slate-900/50 hover:border-slate-700 transition-all">
+    <div>
+      <p className="text-slate-500 text-xs font-bold uppercase tracking-wider mb-1">{title}</p>
+      <h3 className="text-3xl font-black text-white">{value}</h3>
+    </div>
+    <div className={`p-4 rounded-2xl bg-${color}-500/10`}>
+      {icon}
+    </div>
+  </div>
+);
+
 const Dashboard = () => {
   const [stats, setStats] = useState({
     students: 0,
@@ -32,176 +44,167 @@ const Dashboard = () => {
   });
 
   const [activeBuses, setActiveBuses] = useState<Record<string, BusUpdate>>({});
-  const routeNamesRef = useRef<Record<string, string>>({});
-  const allRoutesRef = useRef<Record<string, any>>({});
+  const [routes, setRoutes] = useState<any[]>([]);
+  const [drivers, setDrivers] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  
   const socketRef = useRef<Socket | null>(null);
 
   useEffect(() => {
-    const fetchData = async () => {
+    // 1. Fetch Stats and initial data
+    const fetchInitialData = async () => {
       try {
-        const studentQuery = query(collection(db, 'users'), where('role', '==', 'student'));
-        const driverQuery = query(collection(db, 'users'), where('role', '==', 'driver'));
-        const routesSnap = await getDocs(collection(db, 'routes'));
+        const studentSnap = await getDocs(query(collection(db, 'users'), where('role', '==', 'student')));
+        const driverSnap = await getDocs(query(collection(db, 'users'), where('role', '==', 'driver')));
+        const routeSnap = await getDocs(collection(db, 'routes'));
         
-        const studentsSnap = await getDocs(studentQuery);
-        const driversSnap = await getDocs(driverQuery);
-
-        // Map route IDs to Data
-        const names: Record<string, string> = {};
-        const fullRoutes: Record<string, any> = {};
-        routesSnap.forEach(doc => {
-          const data = doc.data();
-          names[doc.id] = data.routeName;
-          fullRoutes[doc.id] = data;
-        });
-        routeNamesRef.current = names;
-        allRoutesRef.current = fullRoutes;
-
-        // Fetch CURRENTLY ACTIVE TRIPS from Firestore to show immediately
-        const activeTripsQuery = query(collection(db, 'trips'), where('status', '==', 'active'));
-        const activeTripsSnap = await getDocs(activeTripsQuery);
-        
-        const initialBuses: Record<string, BusUpdate> = {};
-        activeTripsSnap.forEach(doc => {
-          const data = doc.data();
-          if (data.currentLocation) {
-            initialBuses[data.routeId] = {
-              routeId: data.routeId,
-              latitude: data.currentLocation.latitude,
-              longitude: data.currentLocation.longitude,
-              speed: 0,
-              timestamp: data.lastUpdate?.toMillis() || Date.now(),
-              routeName: names[data.routeId] || data.routeId
-            };
-          }
-        });
-        setActiveBuses(initialBuses);
-
         setStats({
-          students: studentsSnap.size,
-          drivers: driversSnap.size,
-          routes: routesSnap.size,
-          activeTrips: activeTripsSnap.size
+          students: studentSnap.size,
+          drivers: driverSnap.size,
+          routes: routeSnap.size,
+          activeTrips: 0 // Will be updated by activeBuses count
         });
-      } catch (error) {
-        console.error('Error fetching stats:', error);
+        setLoading(false);
+      } catch (err) {
+        console.error("Initial fetch error:", err);
+        setLoading(false);
       }
     };
 
-    fetchData();
+    fetchInitialData();
 
-    // Socket Integration
-    console.log(`[Socket] Connecting to: ${SOCKET_URL}`);
-    socketRef.current = io(SOCKET_URL, {
-      transports: ['websocket'],
-    });
-    
-    socketRef.current.on('connect', () => {
-      console.log(`[Socket] Admin connected to ${SOCKET_URL}`);
-      socketRef.current?.emit('joinRoute', 'admin'); 
+    // 2. Real-time Firestore listeners
+    const unsubRoutes = onSnapshot(collection(db, 'routes'), (snapshot) => {
+      setRoutes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
 
-    socketRef.current.on('connect_error', (err) => {
-      console.error(`[Socket] Connection error:`, err);
+    const unsubDrivers = onSnapshot(query(collection(db, 'users'), where('role', '==', 'driver')), (snapshot) => {
+      setDrivers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
 
-    socketRef.current.on('allBusesUpdate', (data: BusUpdate) => {
-      setActiveBuses(prev => {
-        const name = routeNamesRef.current[data.routeId] || data.routeId;
-        return {
-          ...prev,
-          [data.routeId]: {
-            ...data,
-            routeName: name
-          }
-        };
+    // 3. Socket.io Integration
+    try {
+      socketRef.current = io(SOCKET_URL, {
+        transports: ['websocket', 'polling'],
+        reconnection: true
       });
-    });
 
-    // Handle drivers going online/offline
-    socketRef.current.on('driverStatus', (data: { routeId: string, online: boolean }) => {
-      console.log(`[Dashboard] Driver status for ${data.routeId}: ${data.online ? 'ONLINE' : 'OFFLINE'}`);
-      if (!data.online) {
+      socketRef.current.on('connect', () => {
+        console.log('[Socket] Connected');
+        socketRef.current?.emit('join-admin');
+      });
+
+      socketRef.current.on('updateLocation', (data: BusUpdate) => {
+        if (data.latitude && data.longitude) {
+          setActiveBuses(prev => ({
+            ...prev,
+            [data.routeId]: data
+          }));
+        }
+      });
+
+      socketRef.current.on('busStopped', (data: { routeId: string }) => {
         setActiveBuses(prev => {
           const newState = { ...prev };
           delete newState[data.routeId];
           return newState;
         });
-      }
-      // Note: We don't add them with 0,0 anymore. 
-      // They will appear as soon as the first 'allBusesUpdate' arrives.
-    });
+      });
+    } catch (err) {
+      console.error("Socket error:", err);
+    }
 
     return () => {
       socketRef.current?.disconnect();
+      unsubRoutes();
+      unsubDrivers();
     };
   }, []);
 
-  const statCards = [
-    { label: 'Total Students', value: stats.students, icon: <Users className="text-blue-500" />, color: 'blue' },
-    { label: 'Active Drivers', value: stats.drivers, icon: <Bus className="text-emerald-500" />, color: 'emerald' },
-    { label: 'Total Routes', value: stats.routes, icon: <MapIcon className="text-amber-500" />, color: 'amber' },
-    { label: 'Live Buses', value: Object.keys(activeBuses).length, icon: <Radio className="text-red-500 animate-pulse" />, color: 'red' },
-  ];
+  const busEntries = Object.entries(activeBuses);
+
+  if (loading) {
+    return (
+      <div className="h-[80vh] flex flex-col items-center justify-center space-y-4">
+        <div className="w-12 h-12 border-4 border-amber-500 border-t-transparent rounded-full animate-spin"></div>
+        <p className="text-slate-400 font-medium animate-pulse">Initializing System...</p>
+      </div>
+    );
+  }
 
   return (
-    <div className="space-y-8">
-      <header>
-        <h1 className="text-3xl font-bold text-white">Live Fleet Monitoring</h1>
-        <p className="text-slate-400 mt-2">Real-time tracking of all active bus routes across the campus.</p>
+    <div className="space-y-8 animate-in fade-in duration-700">
+      <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div>
+          <h1 className="text-4xl font-black text-white tracking-tight">System Overview</h1>
+          <p className="text-slate-400 mt-1 font-medium flex items-center gap-2">
+             <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+             </span>
+             {busEntries.length} Buses Currently Active
+          </p>
+        </div>
+        <div className="bg-slate-800/50 backdrop-blur-md px-4 py-2 rounded-2xl border border-slate-700/50 text-[10px] font-black uppercase tracking-tighter text-slate-500">
+           Network: <span className={SOCKET_URL.includes('localhost') ? 'text-amber-500' : 'text-emerald-500'}>
+             {SOCKET_URL.includes('localhost') ? 'Development' : 'Cloud Production'}
+           </span>
+        </div>
       </header>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {statCards.map((card, idx) => (
-          <div key={idx} className="card flex items-center justify-between border-slate-800 bg-slate-900/50">
-            <div>
-              <p className="text-slate-400 text-sm font-medium mb-1">{card.label}</p>
-              <h3 className="text-2xl font-bold text-white">{card.value}</h3>
-            </div>
-            <div className="p-3 rounded-xl bg-slate-800">
-              {card.icon}
-            </div>
-          </div>
-        ))}
+        <StatCard title="Students" value={stats.students} icon={<Users className="text-blue-400" />} color="blue" />
+        <StatCard title="Active Trips" value={busEntries.length} icon={<Bus className="text-emerald-400" />} color="emerald" />
+        <StatCard title="Routes" value={routes.length} icon={<MapIcon className="text-amber-400" />} color="amber" />
+        <StatCard title="Drivers" value={drivers.length} icon={<Users className="text-rose-400" />} color="rose" />
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
-        <div className="xl:col-span-2 space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xl font-bold">Live Map</h2>
-            <div className="flex items-center gap-2 text-xs text-emerald-500 font-bold bg-emerald-500/10 px-3 py-1 rounded-full border border-emerald-500/20">
-              <span className="w-2 h-2 bg-emerald-500 rounded-full animate-ping"></span>
-              LIVE UPDATES
-            </div>
+        <div className="xl:col-span-2 card p-0 overflow-hidden min-h-[550px] border-slate-700/50 shadow-2xl relative">
+          <div className="absolute top-4 right-4 z-[1000] flex items-center gap-2 bg-slate-900/90 backdrop-blur px-3 py-1.5 rounded-full border border-emerald-500/30 text-[10px] font-bold text-emerald-400 shadow-xl">
+             <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"></span>
+             LIVE TRACKING ACTIVE
           </div>
-          <LiveTrackingMap buses={activeBuses} routesData={allRoutesRef.current} />
+          <LiveTrackingMap buses={busEntries.map(([_, data]) => data)} routes={routes} />
         </div>
 
-        <div className="card h-full flex flex-col">
-          <h2 className="text-xl font-bold mb-6">Active Route Status</h2>
-          <div className="flex-1 overflow-y-auto space-y-4 pr-2 custom-scrollbar">
-            {Object.keys(activeBuses).length === 0 ? (
-              <p className="text-slate-500 italic text-center mt-10">No buses are currently on road.</p>
-            ) : (
-              Object.values(activeBuses).map((bus) => (
-                <div key={bus.routeId} className="p-4 rounded-xl bg-slate-800/50 border border-slate-700/50 hover:border-blue-500/30 transition-colors">
-                  <div className="flex justify-between items-start mb-2">
-                    <span className="font-bold text-white">{bus.routeName}</span>
-                    <span className="text-xs bg-blue-500/20 text-blue-400 px-2 py-0.5 rounded uppercase font-bold">Active</span>
-                  </div>
-                  <div className="grid grid-cols-2 gap-4 text-xs">
-                    <div>
-                      <p className="text-slate-500">Speed</p>
-                      <p className="text-slate-300 font-medium">{bus.speed.toFixed(1)} km/h</p>
-                    </div>
-                    <div>
-                      <p className="text-slate-500">Last Update</p>
-                      <p className="text-slate-300 font-medium">{new Date(bus.timestamp).toLocaleTimeString()}</p>
-                    </div>
-                  </div>
+        <div className="space-y-6">
+          <div className="card h-full border-slate-700/50 flex flex-col">
+            <h3 className="text-lg font-bold flex items-center gap-2 border-b border-slate-800 pb-4 mb-4">
+              <Activity size={20} className="text-emerald-500" />
+              Active Fleet
+            </h3>
+            <div className="flex-1 space-y-4 overflow-y-auto pr-2 custom-scrollbar">
+              {busEntries.length === 0 ? (
+                <div className="h-full flex flex-col items-center justify-center py-20 px-4 text-center">
+                   <div className="w-16 h-16 rounded-full bg-slate-800 flex items-center justify-center mb-4">
+                      <Bus size={32} className="text-slate-600" />
+                   </div>
+                   <p className="text-slate-500 font-medium italic">No active trips detected.</p>
                 </div>
-              ))
-            )}
+              ) : (
+                busEntries.map(([routeId, data]) => {
+                  const route = routes.find(r => r.id === routeId);
+                  return (
+                    <div key={routeId} className="flex items-center gap-4 p-4 rounded-2xl bg-slate-800/30 border border-slate-700/30 hover:border-emerald-500/40 transition-all group">
+                      <div className="w-12 h-12 rounded-xl bg-emerald-500/10 flex items-center justify-center text-emerald-500 group-hover:scale-110 transition-transform shadow-lg">
+                        <Bus size={24} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-bold text-slate-100 truncate">{route?.routeName || 'Unknown Route'}</p>
+                        <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest mt-0.5">
+                           Speed: {data.speed?.toFixed(1) || 0} km/h
+                        </p>
+                      </div>
+                      <div className="flex flex-col items-end gap-1">
+                         <span className="px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-400 text-[8px] font-black uppercase">Active</span>
+                         <p className="text-[8px] text-slate-600 font-bold">{new Date(data.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
           </div>
         </div>
       </div>

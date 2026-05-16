@@ -39,6 +39,16 @@ const MapEvents = ({ onMapClick }: { onMapClick: (lat: number, lng: number) => v
   return null;
 };
 
+const MapCenterUpdater = ({ coords }: { coords: {lat: number, lng: number} | null }) => {
+  const map = useMap();
+  useEffect(() => {
+    if (coords) {
+      map.flyTo([coords.lat, coords.lng], 16);
+    }
+  }, [coords, map]);
+  return null;
+};
+
 const ManageRoutes = () => {
   const [routes, setRoutes] = useState<any[]>([]);
   const [drivers, setDrivers] = useState<any[]>([]);
@@ -95,16 +105,6 @@ const ManageRoutes = () => {
     } finally {
       setIsSearching(false);
     }
-  };
-
-  const MapCenterUpdater = ({ coords }: { coords: {lat: number, lng: number} | null }) => {
-    const map = useMap();
-    useEffect(() => {
-      if (coords) {
-        map.flyTo([coords.lat, coords.lng], 16);
-      }
-    }, [coords, map]);
-    return null;
   };
 
   const handleMapClick = (lat: number, lng: number) => {
