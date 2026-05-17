@@ -105,7 +105,7 @@ export const LocationService = {
     // ✅ Use flat (top-level) config keys — nested 'geolocation', 'app', etc. are invalid
     await BackgroundGeolocation.ready({
       reset: true, // Ensure new settings are applied
-      desiredAccuracy: BackgroundGeolocation.DESIRED_ACCURACY_HIGH,
+      desiredAccuracy: 0, // 0 corresponds to High accuracy
       locationUpdateInterval: 1000, // Force update every second for Fake GPS
       fastestLocationUpdateInterval: 500,
       distanceFilter: 2, // Very sensitive for testing
@@ -113,13 +113,13 @@ export const LocationService = {
       stopOnTerminate: false,
       startOnBoot: true,
       debug: false,
-      logLevel: BackgroundGeolocation.LOG_LEVEL_VERBOSE,
+      logLevel: 5, // 5 corresponds to Verbose logging
       enableHeadless: true,
       // Performance/Testing tweaks
       heartbeatInterval: 10,
       preventSuspend: true,
       foregroundService: true,
-    });
+    } as any);
 
     return true;
   },
@@ -134,8 +134,16 @@ export const LocationService = {
   stopTracking: async () => {
     console.log('Stopping background tracking...');
     _isTracking = false;
-    await BackgroundGeolocation.stop();
+    // Small delay so any in-flight start() action completes before we stop,
+    // preventing the "Waiting for previous start action" error
+    await new Promise<void>(res => setTimeout(() => res(), 500));
+    try {
+      await BackgroundGeolocation.stop();
+    } catch (e) {
+      console.warn('[LocationService] stopTracking error (safe to ignore):', e);
+    }
   },
+
 
   checkPermissions: async () => {
     if (Platform.OS === 'android') {

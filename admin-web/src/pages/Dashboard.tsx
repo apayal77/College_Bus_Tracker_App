@@ -189,7 +189,7 @@ const Dashboard = () => {
                       <div className="flex-1 min-w-0">
                         <p className="font-bold text-slate-100 truncate">{route?.routeName || 'Unknown Route'}</p>
                         <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest mt-0.5">
-                           Speed: {data.speed?.toFixed(1) || 0} km/h
+                           Speed: {data.speed ? (data.speed * 3.6).toFixed(1) : '0'} km/h
                         </p>
                       </div>
                       <div className="flex flex-col items-end gap-1">

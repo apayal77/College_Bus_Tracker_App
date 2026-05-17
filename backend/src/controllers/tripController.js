@@ -1,3 +1,4 @@
+const admin = require('firebase-admin');
 const { db } = require('../config/firebase');
 const { sendNotificationToRoute } = require('../services/notificationService');
 
@@ -25,7 +26,7 @@ exports.startTrip = async (req, res) => {
       routeId,
       driverId,
       status: 'active',
-      startTime: new Date().toISOString(),
+      startTime: admin.firestore.FieldValue.serverTimestamp(),
       endTime: null
     };
 
@@ -52,7 +53,7 @@ exports.endTrip = async (req, res) => {
     
     await db().collection('trips').doc(id).update({
       status: 'completed',
-      endTime: new Date().toISOString()
+      endTime: admin.firestore.FieldValue.serverTimestamp()
     });
 
     if (routeId) {

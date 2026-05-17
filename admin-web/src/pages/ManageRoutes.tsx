@@ -30,6 +30,16 @@ const stopIcon = new L.Icon({
     iconAnchor: [12, 25],
 });
 
+const BASELINE_STOPS: Stop[] = [
+  { name: 'KIT Main Gate', latitude: 16.6582, longitude: 74.2741 },
+  { name: 'KIT Central Library', latitude: 16.6570, longitude: 74.2755 },
+  { name: 'Boys Hostel', latitude: 16.6552, longitude: 74.2730 },
+  { name: 'Girls Hostel', latitude: 16.6548, longitude: 74.2745 },
+  { name: 'Kolhapur Railway Station', latitude: 16.6975, longitude: 74.2415 },
+  { name: 'Cyber Chowk', latitude: 16.6850, longitude: 74.2470 },
+  { name: 'Rankala Lake', latitude: 16.6870, longitude: 74.2185 },
+];
+
 const MapEvents = ({ onMapClick }: { onMapClick: (lat: number, lng: number) => void }) => {
   useMapEvents({
     click(e) {
@@ -61,6 +71,36 @@ const ManageRoutes = () => {
   const [newStopName, setNewStopName] = useState('');
   const [locationSearch, setLocationSearch] = useState('');
   const [isSearching, setIsSearching] = useState(false);
+  const [manualLat, setManualLat] = useState('');
+  const [manualLng, setManualLng] = useState('');
+
+  // Extract unique stops with coordinates from all existing routes
+  const getPredefinedStops = (): Stop[] => {
+    const stopsMap = new Map<string, Stop>();
+    routes.forEach(route => {
+      if (route.stops && Array.isArray(route.stops)) {
+        route.stops.forEach((stop: any) => {
+          if (stop && typeof stop === 'object' && stop.name) {
+            const key = stop.name.toLowerCase().trim();
+            if (!stopsMap.has(key) && stop.latitude && stop.longitude) {
+              stopsMap.set(key, {
+                name: stop.name,
+                latitude: stop.latitude,
+                longitude: stop.longitude
+              });
+            }
+          }
+        });
+      }
+    });
+    return Array.from(stopsMap.values());
+  };
+
+  const predefined = getPredefinedStops();
+  const availableLocations = [
+    ...predefined,
+    ...BASELINE_STOPS.filter(b => !predefined.some(p => p.name.toLowerCase().trim() === b.name.toLowerCase().trim()))
+  ];
 
   useEffect(() => {
     // Fetch Routes
@@ -122,6 +162,49 @@ const ManageRoutes = () => {
       setTempCoords(null);
       setNewStopName('');
     }
+  };
+
+  const parseCoordinateString = (val: string): number => {
+    const clean = val.toUpperCase().trim();
+    if (!clean) return NaN;
+    const isNegative = clean.includes('S') || clean.includes('W');
+    const numericOnly = clean.replace(/[NSWE]/g, '').trim();
+    const num = parseFloat(numericOnly);
+    if (isNaN(num)) return NaN;
+    return isNegative ? -Math.abs(num) : Math.abs(num);
+  };
+
+  const handleAddManualCoords = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newStopName.trim()) {
+      alert("Please enter a stop name.");
+      return;
+    }
+
+    let lat = 0;
+    let lng = 0;
+
+    if (manualLat.trim() || manualLng.trim()) {
+      const parsedLat = parseCoordinateString(manualLat);
+      const parsedLng = parseCoordinateString(manualLng);
+      if (isNaN(parsedLat) || isNaN(parsedLng)) {
+        alert("Please enter valid latitude and longitude values (e.g. 16.65 N, 74.27 E), or leave them completely blank to add the stop by name only.");
+        return;
+      }
+      lat = parsedLat;
+      lng = parsedLng;
+      setTempCoords({ lat, lng });
+    }
+
+    setSelectedStops([...selectedStops, { 
+      name: newStopName.trim(), 
+      latitude: lat, 
+      longitude: lng 
+    }]);
+    
+    setNewStopName('');
+    setManualLat('');
+    setManualLng('');
   };
 
   const removeStop = (index: number) => {
@@ -327,6 +410,79 @@ const ManageRoutes = () => {
                         disabled={isSearching}
                       >
                         {isSearching ? '...' : 'Search'}
+                      </button>
+                   </div>
+                </div>
+
+                <div className="space-y-2 bg-slate-800/20 p-3.5 rounded-xl border border-slate-700/30">
+                   <div className="flex justify-between items-center">
+                     <label className="block text-xs font-bold text-amber-500 uppercase tracking-widest">Select Pre-saved Stop</label>
+                     <span className="text-[10px] text-slate-500">Quick list</span>
+                   </div>
+                   <select
+                     className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white text-xs outline-none focus:border-amber-500 cursor-pointer"
+                     onChange={(e) => {
+                       const idx = parseInt(e.target.value);
+                       if (isNaN(idx)) return;
+                       const stop = availableLocations[idx];
+                       if (stop) {
+                         setNewStopName(stop.name);
+                         setManualLat(stop.latitude ? String(stop.latitude) : '');
+                         setManualLng(stop.longitude ? String(stop.longitude) : '');
+                         if (stop.latitude && stop.longitude) {
+                           setTempCoords({ lat: stop.latitude, lng: stop.longitude });
+                         }
+                       }
+                     }}
+                     defaultValue=""
+                   >
+                     <option value="" disabled>-- Select a pre-saved location --</option>
+                     {availableLocations.map((loc, i) => (
+                       <option key={i} value={i}>
+                         {loc.name} {loc.latitude && loc.longitude ? `(${loc.latitude.toFixed(4)} N, ${loc.longitude.toFixed(4)} E)` : '(Name Only)'}
+                       </option>
+                     ))}
+                   </select>
+
+                   <div className="pt-2 border-t border-slate-700/30 mt-2">
+                     <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Or Add/Edit Coordinates Manually</label>
+                     <div className="grid grid-cols-2 gap-2 mt-1">
+                        <div>
+                          <span className="text-[10px] text-slate-500 font-bold block mb-1">Latitude</span>
+                          <input 
+                            type="text"
+                            placeholder="e.g. 16.6543 N"
+                            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-white text-xs outline-none focus:border-amber-500"
+                            value={manualLat}
+                            onChange={(e) => setManualLat(e.target.value)}
+                          />
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-slate-500 block mb-1 font-bold">Longitude</span>
+                          <input 
+                            type="text"
+                            placeholder="e.g. 74.2765 E"
+                            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-white text-xs outline-none focus:border-amber-500"
+                            value={manualLng}
+                            onChange={(e) => setManualLng(e.target.value)}
+                          />
+                        </div>
+                     </div>
+                   </div>
+                   <div className="flex gap-2 mt-2">
+                      <input 
+                        type="text"
+                        placeholder="Stop Name (e.g. Hostels)"
+                        className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-white text-xs outline-none focus:border-amber-500"
+                        value={newStopName}
+                        onChange={(e) => setNewStopName(e.target.value)}
+                      />
+                      <button 
+                        type="button"
+                        onClick={handleAddManualCoords}
+                        className="bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold px-4 py-1.5 rounded-lg transition-all"
+                      >
+                        Add Stop
                       </button>
                    </div>
                 </div>

@@ -1,273 +1,406 @@
-import React, { useState, useEffect } from 'react';
-import {
-  View,
-  StyleSheet,
-  Alert,
-  ScrollView,
-} from 'react-native';
-import {
-  Text,
-  Appbar,
-  ActivityIndicator,
-  Chip,
-  Divider,
-  Surface,
-} from 'react-native-paper';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { View, StyleSheet, Alert, ScrollView } from 'react-native';
+import { Text, Appbar, ActivityIndicator, Chip, Divider, Surface } from 'react-native-paper';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
-import { firestoreService, RouteData, TripData } from '../../services/firestoreService';
+import { firestoreService, RouteData, TripData, TripSummary } from '../../services/firestoreService';
 import { LocationService } from '../../services/LocationService';
 import { socketService } from '../../services/socketService';
-import OpenStreetMap from '../../components/OpenStreetMap';
+import OpenStreetMap, { MapStop } from '../../components/OpenStreetMap';
 import BackgroundGeolocation from 'react-native-background-geolocation';
 import AppIcon, { ICONS } from '../../components/AppIcon';
 import AppButton from '../../components/AppButton';
 import AppCard from '../../components/AppCard';
 import { dark } from '../../theme/colors';
 
+function haversineM(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371000;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function parseDateSafe(raw: any): Date {
+  if (!raw) return new Date();
+  if (typeof raw === 'string') return new Date(raw);
+  if (raw instanceof Date) return raw;
+  if (typeof raw?.toDate === 'function') return raw.toDate();
+  if (typeof raw?.toMillis === 'function') return new Date(raw.toMillis());
+  if (raw?.seconds) return new Date(raw.seconds * 1000);
+  return new Date();
+}
+
+function formatTime(raw: any): string {
+  if (!raw) return '--:--';
+  try {
+    const d = parseDateSafe(raw);
+    return d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+  } catch { return '--:--'; }
+}
+
 export default function DriverDashboard() {
   const { user, logout } = useAuth();
+
   const [assignedRoute, setAssignedRoute] = useState<RouteData | null>(null);
-  const [activeTrip, setActiveTrip] = useState<TripData | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [activeTrip, setActiveTrip]       = useState<TripData | null>(null);
+  const [loading, setLoading]             = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [currentLocation, setCurrentLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [visitedStopIndices, setVisitedStopIndices] = useState<number[]>([]);
+  const [tripHistory, setTripHistory] = useState<TripData[]>([]);
 
-  useEffect(() => { 
-    fetchDashboardData(); 
-    
-    // Subscribe to real-time location updates for the UI/Map
-    const unsubscribeLocation = LocationService.subscribeToLocation((lat, lng) => {
+  const routeRef      = useRef<RouteData | null>(null);
+  const visitedRef    = useRef<number[]>([]);
+  const activeTripRef = useRef<TripData | null>(null);  // ref so proximity cb can read it
+  const autoEndedRef  = useRef(false);                   // prevent double auto-end
+
+  useEffect(() => {
+    fetchDashboardData();
+    const unsub = LocationService.subscribeToLocation((lat, lng) => {
       setCurrentLocation({ lat, lng });
+      checkStopProximity(lat, lng);
     });
-
-    return () => {
-      unsubscribeLocation();
-    };
+    return () => { unsub(); };
   }, [user]);
 
-  // ── All data-fetching logic unchanged ─────────────────────────
-  const fetchDashboardData = async () => {
-    if (!user) {
-      console.log('[DriverDashboard] No user in context yet.');
-      return;
-    }
-    
-    // Safety timeout to prevent infinite loading screen
-    const timeout = setTimeout(() => {
-      console.warn('[DriverDashboard] Data fetch timed out after 10s');
-      setLoading(false);
-    }, 10000);
+  const checkStopProximity = useCallback((lat: number, lng: number) => {
+    // Normalize stops — guard against null/undefined entries from Firestore
+    const stops = (routeRef.current?.stops ?? []).map((s: any, idx: number) => {
+      if (s == null) return { name: `Stop ${idx + 1}`, latitude: undefined, longitude: undefined };
+      if (typeof s === 'string') return { name: s, latitude: undefined, longitude: undefined };
+      return {
+        name: s?.name || `Stop ${idx + 1}`,
+        latitude: typeof s?.latitude === 'number' ? s.latitude : undefined,
+        longitude: typeof s?.longitude === 'number' ? s.longitude : undefined,
+      };
+    });
 
+    stops.forEach((stop: any, index: number) => {
+      if (!stop || visitedRef.current.includes(index)) return;
+      if (stop.latitude === undefined || stop.longitude === undefined) return;
+
+      const dist = haversineM(lat, lng, stop.latitude, stop.longitude);
+      if (dist < 120) {
+        const updated = [...visitedRef.current, index].sort((a, b) => a - b);
+        visitedRef.current = updated;
+        setVisitedStopIndices([...updated]);
+
+        // Check if this was the LAST mappable stop — auto-end trip
+        const mappableStops = stops.filter(
+          (s: any) => s && s.latitude !== undefined && s.longitude !== undefined
+        );
+        const allVisited = mappableStops.every(
+          (_: any, i: number) => updated.includes(stops.indexOf(mappableStops[i]))
+        );
+        if (allVisited && activeTripRef.current && !autoEndedRef.current) {
+          autoEndedRef.current = true;
+          Alert.alert(
+            '🏁 Final Stop Reached!',
+            'You have arrived at the last stop. The trip will end automatically.',
+            [{ text: 'OK' }]
+          );
+          // Small delay for alert to show before ending
+          setTimeout(() => handleEndTripAuto(), 1500);
+        }
+      }
+    });
+  }, []);
+
+  // Called automatically when final stop reached — same logic as handleEndTrip
+  const handleEndTripAuto = async () => {
+    const trip = activeTripRef.current;
+    const route = routeRef.current;
+    if (!trip) return;
     try {
-      console.log('[DriverDashboard] Fetching data for user:', user.uid);
-      setLoading(true);
+      // Safely parse trip start time using custom safe parser
+      const startDate = parseDateSafe(trip.startTime);
+      const startMs = startDate.getTime();
+      const totalSt = (route?.stops ?? []).length;
+      const summary = {
+        routeName: route?.routeName,
+        totalStops: totalSt,
+        visitedStops: visitedRef.current,
+        visitedCount: visitedRef.current.length,
+        durationMs: startMs > 0 ? Date.now() - startMs : undefined,
+      };
       
+      // Stop tracking and emit status update instantly
+      await LocationService.stopTracking();
+      socketService.emitTripStatus(trip.routeId, 'stopped');
+      
+      // Update database status
+      await firestoreService.endTrip(trip.id!, summary);
+      
+      // Reset local state instantly so UI updates without any delay
+      setActiveTrip(null);
+      activeTripRef.current = null;
+      setVisitedStopIndices([]);
+      visitedRef.current = [];
+      autoEndedRef.current = false;
+      
+      fetchDashboardData();
+    } catch (e) {
+      console.error('[DriverDashboard] autoEndTrip error:', e);
+    }
+  };
+
+
+  const fetchDashboardData = async () => {
+    if (!user) return;
+    const timeout = setTimeout(() => setLoading(false), 10_000);
+    try {
+      setLoading(true);
       let currentRoute: RouteData | null = null;
       if (user.routeAssigned) {
-        console.log('[DriverDashboard] Fetching routes for:', user.routeAssigned);
-        const routes = await firestoreService.getRoutes();
-        const assigned = user.routeAssigned?.toLowerCase().trim();
-        
-        console.log('[DriverDashboard] User assigned route:', assigned);
-
-        const route = routes.find(r => {
-          const nameMatch = r.routeName.toLowerCase().trim() === assigned;
-          const idMatch = r.id?.toLowerCase().trim() === assigned;
-          return nameMatch || idMatch;
-        });
-
-        if (route) { 
-          console.log('[DriverDashboard] Assigned route found:', route.routeName);
-          setAssignedRoute(route); 
-          currentRoute = route; 
+        const routes  = await firestoreService.getRoutes();
+        const assigned = user.routeAssigned.toLowerCase().trim();
+        const route    = routes.find(r =>
+          r.routeName.toLowerCase().trim() === assigned ||
+          r.id?.toLowerCase().trim()       === assigned
+        );
+        if (route) {
+          setAssignedRoute(route);
+          routeRef.current = route;
+          currentRoute = route;
         } else {
-          console.warn('[DriverDashboard] Assigned route NOT found in collection for:', assigned);
+          setAssignedRoute(null);
+          routeRef.current = null;
         }
       } else {
-        console.log('[DriverDashboard] No route assigned to this user');
+        setAssignedRoute(null);
+        routeRef.current = null;
       }
 
-      console.log('[DriverDashboard] Checking for active trip...');
       const trip = await firestoreService.getActiveTripByDriver(user.uid);
       setActiveTrip(trip);
+      activeTripRef.current = trip;
+      if (!trip) autoEndedRef.current = false; // reset flag when no active trip
+
+      // Load recent trip history
+      const history = await firestoreService.getTripHistoryByDriver(user.uid);
+      setTripHistory(history);
 
       if (currentRoute) {
-        console.log('[DriverDashboard] Setting up location service for route:', currentRoute.id);
         await LocationService.setup(user.uid, currentRoute.id!);
-        
-        console.log('[DriverDashboard] Connecting socket...');
         socketService.connect();
         socketService.joinRoute(currentRoute.id!);
 
-        console.log('[DriverDashboard] Getting initial position...');
-        BackgroundGeolocation.getCurrentPosition({ timeout: 10, maximumAge: 60000 })
-          .then(loc => {
-            console.log('[DriverDashboard] Initial position received');
-            setCurrentLocation({ lat: loc.coords.latitude, lng: loc.coords.longitude });
-          })
-          .catch(e => console.warn('[DriverDashboard] Could not get initial position:', e));
-          
+        // 1. Get initial position safely — catch busy/timeout error 499
+        try {
+          const loc = await BackgroundGeolocation.getCurrentPosition({ timeout: 15, maximumAge: 60_000 });
+          setCurrentLocation({ lat: loc.coords.latitude, lng: loc.coords.longitude });
+        } catch (e) {
+          console.warn('[DriverDashboard] Initial GPS check skipped/busy (error 499):', e);
+        }
+
+        // 2. Resume tracking safely if trip is active — catch any start tracking errors
         if (trip) {
-          console.log('[DriverDashboard] Trip is active, starting tracking');
-          LocationService.startTracking();
+          try {
+            await LocationService.startTracking();
+          } catch (e) {
+            console.warn('[DriverDashboard] Tracking resume failed:', e);
+          }
         }
       }
-    } catch (error) {
-      console.error('[DriverDashboard] Error fetching dashboard data:', error);
+
+    } catch (e) {
+      console.error('[DriverDashboard]', e);
     } finally {
       clearTimeout(timeout);
       setLoading(false);
-      console.log('[DriverDashboard] Data fetch complete.');
     }
   };
 
-  // ── Trip handlers — unchanged ──────────────────────────────────
   const handleStartTrip = async () => {
-    if (!assignedRoute) { 
-      Alert.alert('No Route', 'You must be assigned a route by an admin first.'); 
-      return; 
-    }
+    if (!assignedRoute) { Alert.alert('No Route', 'You must be assigned a route first.'); return; }
     try {
-      console.log('[DriverDashboard] Starting trip for route:', assignedRoute.id, 'Driver:', user?.uid);
       setActionLoading(true);
-      const hasPermission = await LocationService.checkPermissions();
-      if (!hasPermission) { 
-        console.warn('[DriverDashboard] Missing permissions');
-        setActionLoading(false); 
-        return; 
-      }
+      const ok = await LocationService.checkPermissions();
+      if (!ok) return;
 
-      await firestoreService.startTrip({ 
-        routeId: assignedRoute.id!, 
-        driverId: user!.uid // This is now the phone number
-      });
+      // Start the trip and get the new trip ID
+      const newTripId = await firestoreService.startTrip({ routeId: assignedRoute.id!, driverId: user!.uid });
+      
+      // Create local activeTrip state instantly for timezone-perfect synchronization
+      const newTrip: TripData = {
+        id: newTripId,
+        routeId: assignedRoute.id!,
+        driverId: user!.uid,
+        status: 'active',
+        startTime: new Date().toISOString(),
+      };
+      
+      setActiveTrip(newTrip);
+      activeTripRef.current = newTrip;
+      autoEndedRef.current = false;
+      setVisitedStopIndices([]);
+      visitedRef.current = [];
 
-      console.log('[DriverDashboard] Trip doc created in Firestore');
       await LocationService.startTracking();
       socketService.emitTripStatus(assignedRoute.id!, 'started');
       
-      Alert.alert('Trip Started', 'Have a safe journey!');
+      Alert.alert('Trip Started 🚌', 'Have a safe journey!');
       fetchDashboardData();
-    } catch (error) { 
-      console.error('[DriverDashboard] Failed to start trip:', error);
-      Alert.alert('Error', 'Failed to start trip. Check your internet.'); 
-    } finally { 
-      setActionLoading(false); 
+    } catch (e) {
+      console.error('[DriverDashboard] startTrip error:', e);
+      Alert.alert('Error', 'Failed to start trip.');
+    } finally {
+      setActionLoading(false);
     }
   };
+
 
   const handleEndTrip = async () => {
     if (!activeTrip) return;
     try {
-      console.log('[DriverDashboard] Ending trip:', activeTrip.id);
       setActionLoading(true);
-      await firestoreService.endTrip(activeTrip.id!);
-      Alert.alert('Trip Ended', 'Trip records saved successfully.');
+
+      // Build summary safely using our robust parser
+      const startDate = parseDateSafe(activeTrip.startTime);
+      const startMs = startDate.getTime();
+      const summary: TripSummary = {
+        routeName: assignedRoute?.routeName,
+        totalStops: stops.length,
+        visitedStops: visitedStopIndices,
+        visitedCount: visitedStopIndices.length,
+        durationMs: startMs > 0 ? Date.now() - startMs : undefined,
+      };
+
+      // Stop tracking and emit status update instantly
       await LocationService.stopTracking();
-      // ✅ Emit the routeId (not the trip document id) so students receive the status update
       socketService.emitTripStatus(activeTrip.routeId, 'stopped');
+      
+      // Update database status
+      await firestoreService.endTrip(activeTrip.id!, summary);
+
+      // Reset local state instantly so UI updates without any delay
+      setActiveTrip(null);
+      activeTripRef.current = null;
+      setVisitedStopIndices([]);
+      visitedRef.current = [];
+      autoEndedRef.current = false;
+
+      const dur = summary.durationMs
+        ? `${Math.round(summary.durationMs / 60000)} min`
+        : '';
+      Alert.alert(
+        'Trip Ended 🏁',
+        `Visited ${summary.visitedCount}/${summary.totalStops} stops.${dur ? ` Duration: ${dur}` : ''} Records saved.`
+      );
       fetchDashboardData();
-    } catch { Alert.alert('Error', 'Failed to end trip'); }
-    finally { setActionLoading(false); }
+    } catch (e) {
+      console.error('[DriverDashboard] endTrip error:', e);
+      Alert.alert('Error', 'Failed to end trip');
+    } finally {
+      setActionLoading(false);
+    }
   };
 
-  // Convert stops to lat/lng points for the map polyline
-  const getRoutePath = () => {
-    if (!assignedRoute?.stops) return [];
-    return assignedRoute.stops
-      .map(stop => ({ lat: stop.latitude, lng: stop.longitude }))
-      .filter(p => p.lat !== undefined && p.lng !== undefined);
+
+  const getNormalizedStops = () => {
+    return (assignedRoute?.stops ?? []).map((s, idx) => {
+      if (typeof s === 'string') {
+        return { name: s, latitude: undefined, longitude: undefined };
+      }
+      return {
+        name: s?.name || `Stop ${idx + 1}`,
+        latitude: s?.latitude,
+        longitude: s?.longitude
+      };
+    });
   };
 
-  const routePath = getRoutePath();
+  const stops = getNormalizedStops();
+  const mapStops = stops.filter(s => s.latitude !== undefined && s.longitude !== undefined) as MapStop[];
+  const centerLoc = currentLocation
+    ?? (mapStops[0] ? { lat: mapStops[0].latitude, lng: mapStops[0].longitude } : { lat: 16.65, lng: 74.27 });
+  const nextStopIdx = visitedStopIndices.length > 0
+    ? Math.max(...visitedStopIndices) + 1
+    : (activeTrip ? 0 : -1);
 
   if (loading) {
     return (
-      <View style={styles.loaderContainer}>
+      <View style={st.loader}>
         <ActivityIndicator size="large" color={dark.driver} />
-        <Text style={styles.loadingText}>Loading your route…</Text>
+        <Text style={st.loaderTxt}>Loading your route…</Text>
       </View>
     );
   }
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top']}>
-
-      {/* ── Appbar ────────────────────────────────────────────── */}
-      <Appbar.Header style={styles.appbar} elevated>
-        <View style={styles.appbarLeft}>
+    <SafeAreaView style={st.safe} edges={['top']}>
+      {/* Appbar */}
+      <Appbar.Header style={st.appbar} elevated>
+        <View style={st.appbarLeft}>
           <AppIcon {...ICONS.bus} size={20} color={dark.driver} />
           <Appbar.Content
             title={`Hello, ${user?.name || 'Driver'}`}
-            titleStyle={styles.appbarTitle}
+            titleStyle={st.appbarTitle}
             subtitle={assignedRoute?.routeName || 'No Route Assigned'}
-            subtitleStyle={[
-              styles.appbarSub,
-              { color: assignedRoute ? dark.driver : dark.textMuted },
-            ]}
+            subtitleStyle={[st.appbarSub, { color: assignedRoute ? dark.driver : dark.textMuted }]}
           />
         </View>
         <Appbar.Action icon="logout" color={dark.error} onPress={logout} size={22} />
       </Appbar.Header>
 
-      <ScrollView contentContainerStyle={styles.content}>
-
-        {/* ── GPS Status Chip ────────────────────────────────────── */}
-        <View style={styles.chipsRow}>
+      <ScrollView contentContainerStyle={st.content}>
+        {/* Status chips */}
+        <View style={st.chipsRow}>
           <Chip
             icon={activeTrip ? 'satellite-uplink' : 'satellite-off'}
-            style={[styles.chip, { borderColor: activeTrip ? dark.driver : dark.error }]}
+            style={[st.chip, { borderColor: activeTrip ? dark.driver : dark.error }]}
             textStyle={{ color: activeTrip ? dark.driver : dark.error, fontWeight: '700' }}>
             {activeTrip ? 'LIVE' : 'INACTIVE'}
           </Chip>
           {activeTrip && (
             <Chip
-              icon="clock-outline"
-              style={[styles.chip, { borderColor: dark.textMuted }]}
+              icon="clock-start"
+              style={[st.chip, { borderColor: dark.textMuted }]}
               textStyle={{ color: dark.textMuted }}>
-              {new Date(activeTrip.startTime).toLocaleTimeString()}
+              Started {formatTime(activeTrip.startTime)}
+            </Chip>
+          )}
+          {activeTrip && visitedStopIndices.length > 0 && (
+            <Chip
+              icon="check-circle"
+              style={[st.chip, { borderColor: dark.success }]}
+              textStyle={{ color: dark.success }}>
+              {visitedStopIndices.length}/{stops.length} Stops
             </Chip>
           )}
         </View>
 
-        {/* ── Status Card ───────────────────────────────────────── */}
-        <AppCard
-          accentColor={activeTrip ? dark.driver : dark.border}
-          elevation={2}
-          style={styles.statusCard}>
-          <View style={styles.statusRow}>
-            <AppIcon
-              name={activeTrip ? 'satellite-uplink' : 'satellite-off'}
-              type="MaterialCommunityIcons"
-              size={30}
-              color={activeTrip ? dark.driver : dark.error}
-            />
-            <View style={styles.statusTextBlock}>
-              <Text variant="labelMedium" style={styles.statusLabel}>Current Trip Status</Text>
-              <Text
-                variant="titleLarge"
-                style={[styles.statusValue, { color: activeTrip ? dark.driver : dark.error }]}>
-                {activeTrip ? 'LIVE' : 'INACTIVE'}
-              </Text>
+        {/* Route Assignment Banner */}
+        {assignedRoute && (
+          <Surface style={st.assignmentBanner} elevation={1}>
+            <View style={st.bannerHeader}>
+              <AppIcon name="checkbox-marked-circle-outline" type="MaterialCommunityIcons" size={22} color={dark.success} />
+              <Text variant="titleMedium" style={st.bannerTitle}>Route Assigned!</Text>
             </View>
-          </View>
-        </AppCard>
+            <Text style={st.bannerText}>
+              Route <Text style={st.bannerRouteName}>{assignedRoute.routeName}</Text> has been assigned to you.
+            </Text>
+          </Surface>
+        )}
 
-        {/* ── Map ───────────────────────────────────────────────── */}
-        <Surface style={styles.mapWrapper} elevation={2}>
+        {/* Map */}
+        <Surface style={st.mapWrapper} elevation={2}>
           <OpenStreetMap
-            busLocation={currentLocation ? { lat: currentLocation.lat, lng: currentLocation.lng } : (routePath[0] || { lat: 16.65, lng: 74.27 })}
-            routePath={routePath}
+            busLocation={centerLoc}
+            stops={mapStops}
+            visitedStopIndices={visitedStopIndices}
+            mode="driver"
           />
         </Surface>
 
-        {/* ── Start / End Trip button ───────────────────────────── */}
+        {/* Action Button */}
         {!assignedRoute ? (
-           <Surface style={styles.noRouteWarning} elevation={1}>
-             <AppIcon {...ICONS.info} size={20} color={dark.error} />
-             <Text style={styles.noRouteText}>No route assigned. Please contact Admin.</Text>
-           </Surface>
+          <Surface style={st.noRoute} elevation={1}>
+            <AppIcon {...ICONS.info} size={20} color={dark.error} />
+            <Text style={st.noRouteTxt}>No route assigned. Please contact Admin.</Text>
+          </Surface>
         ) : (
           <AppButton
             label={activeTrip ? 'END TRIP' : 'START TRIP'}
@@ -276,105 +409,189 @@ export default function DriverDashboard() {
             loading={actionLoading}
             disabled={actionLoading}
             variant={activeTrip ? 'danger' : 'success'}
-            style={styles.actionBtn}
+            style={st.actionBtn}
           />
         )}
 
-        {/* ── Route Stops ───────────────────────────────────────── */}
-        <AppCard accentColor={dark.driver} elevation={1} style={styles.stopsCard}>
-          <View style={styles.sectionTitleRow}>
+        {/* Route Progress Card */}
+        <AppCard accentColor={dark.driver} elevation={1} style={st.stopsCard}>
+          <View style={st.sectionRow}>
             <AppIcon {...ICONS.stopList} size={20} color={dark.textPrimary} />
-            <Text variant="titleMedium" style={styles.sectionTitle}>Route Stops</Text>
+            <Text variant="titleMedium" style={st.sectionTitle}>Route Progress</Text>
           </View>
-          <Divider style={styles.divider} />
-          {assignedRoute?.stops.map((stop, index) => {
-            const stopName = typeof stop === 'string' ? stop : (stop?.name || 'Unknown Stop');
-            return (
-              <View key={index} style={styles.stopRow}>
-                <AppIcon {...ICONS.stop} size={16} color={dark.driver} />
-                <Text variant="bodyMedium" style={styles.stopText}>{stopName}</Text>
-              </View>
-            );
-          })}
-          {!assignedRoute && (
-            <Text variant="bodySmall" style={styles.emptyText}>
-              Waiting for route assignment...
-            </Text>
+          <Divider style={st.divider} />
+
+          {stops.length === 0 ? (
+            <Text style={st.emptyTxt}>No stops added to this route yet.</Text>
+          ) : (
+            stops.map((stop, index) => {
+              const visited  = visitedStopIndices.includes(index);
+              const isNext   = !visited && index === nextStopIdx;
+              const isFirst  = index === 0;
+              const isLast   = index === stops.length - 1;
+              const dotColor = visited ? dark.success : isNext ? dark.primary : dark.border;
+
+              return (
+                <View key={index} style={st.stopRow}>
+                  {/* Spine */}
+                  <View style={st.spine}>
+                    <View style={[
+                      st.dot,
+                      { backgroundColor: dotColor, borderColor: visited ? dark.success : isNext ? dark.primaryLight : dark.border },
+                      isNext && st.dotPulse,
+                    ]}>
+                      {visited && <Text style={st.dotCheck}>✓</Text>}
+                      {!visited && <Text style={[st.dotNum, { color: isNext ? '#fff' : dark.textMuted }]}>{index + 1}</Text>}
+                    </View>
+                    {index < stops.length - 1 && (
+                      <View style={[st.line, { backgroundColor: visited ? dark.success : dark.border }]} />
+                    )}
+                  </View>
+
+                  {/* Label */}
+                  <View style={st.stopLabel}>
+                    <Text style={[
+                      st.stopName,
+                      visited && st.visitedText,
+                      isNext  && st.nextText,
+                    ]}>
+                      {stop.name}
+                      {isFirst ? '  🟢' : isLast ? '  🔴' : ''}
+                    </Text>
+                    <Text style={st.stopMeta}>
+                      {visited ? '✅ Reached' : isNext ? '▶ Next Stop' : '⏳ Upcoming'}
+                    </Text>
+                  </View>
+                </View>
+              );
+            })
           )}
         </AppCard>
 
-        {/* ── Trip History ──────────────────────────────────────── */}
-        <AppCard accentColor={dark.textMuted} elevation={1} style={styles.historyCard}>
-          <View style={styles.sectionTitleRow}>
-            <AppIcon {...ICONS.tripHistory} size={20} color={dark.textPrimary} />
-            <Text variant="titleMedium" style={styles.sectionTitle}>Recent Trips</Text>
-          </View>
-          <Text variant="bodySmall" style={styles.emptyText}>
-            Trip recording is {activeTrip ? 'active' : 'ready'}.
-          </Text>
-        </AppCard>
+        {/* Trip History Card */}
+        {tripHistory.length > 0 && (
+          <AppCard accentColor={dark.textMuted} elevation={1} style={[st.stopsCard, { marginTop: 4 }]}>
+            <View style={st.sectionRow}>
+              <AppIcon name="history" type="MaterialCommunityIcons" size={20} color={dark.textPrimary} />
+              <Text variant="titleMedium" style={st.sectionTitle}>Trip History</Text>
+            </View>
+            <Divider style={st.divider} />
+
+            {tripHistory.map((trip, i) => {
+              const startDate = parseDateSafe(trip.startTime);
+              const startStr = startDate.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })
+                + '  ' + startDate.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+
+              const dur = trip.summary?.durationMs
+                ? `${Math.round(trip.summary.durationMs / 60000)} min`
+                : null;
+              const visited = trip.summary?.visitedCount ?? '?';
+              const total   = trip.summary?.totalStops   ?? '?';
+
+              return (
+                <View key={trip.id || i} style={st.historyRow}>
+                  <View style={st.historyDot}>
+                    <Text style={st.historyDotTxt}>✓</Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={st.historyRoute}>{trip.summary?.routeName || assignedRoute?.routeName || 'Trip'}</Text>
+                    <Text style={st.historyDate}>{startStr}</Text>
+                    <View style={{ flexDirection: 'row', gap: 10, marginTop: 4 }}>
+                      <Text style={st.historyMeta}>🚏 {visited}/{total} stops</Text>
+                      {dur && <Text style={st.historyMeta}>⏱ {dur}</Text>}
+                    </View>
+                  </View>
+                </View>
+              );
+            })}
+          </AppCard>
+        )}
 
       </ScrollView>
     </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: dark.bg },
-  loaderContainer: {
-    flex: 1,
-    backgroundColor: dark.bg,
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 16,
-  },
-  loadingText: { color: dark.textSecondary },
+const st = StyleSheet.create({
+  safe:   { flex: 1, backgroundColor: dark.bg },
+  loader: { flex: 1, backgroundColor: dark.bg, justifyContent: 'center', alignItems: 'center', gap: 16 },
+  loaderTxt: { color: dark.textSecondary },
 
-  appbar: { backgroundColor: dark.surface, paddingHorizontal: 4 },
+  appbar:     { backgroundColor: dark.surface, paddingHorizontal: 4 },
   appbarLeft: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, paddingLeft: 6 },
-  appbarTitle: { color: dark.textPrimary, fontWeight: '800', fontSize: 16 },
-  appbarSub: { fontSize: 12 },
+  appbarTitle:{ color: dark.textPrimary, fontWeight: '800', fontSize: 16 },
+  appbarSub:  { fontSize: 12 },
 
   content: { padding: 16, paddingBottom: 48 },
 
-  chipsRow: { flexDirection: 'row', gap: 10, marginBottom: 16 },
-  chip: { backgroundColor: 'transparent', borderWidth: 1.5 },
-
-  statusCard: { marginBottom: 16 },
-  statusRow: { flexDirection: 'row', alignItems: 'center', gap: 16 },
-  statusTextBlock: { flex: 1 },
-  statusLabel: { color: dark.textSecondary, marginBottom: 2 },
-  statusValue: { fontWeight: '800' },
-
-  mapWrapper: {
-    height: 240,
-    borderRadius: 16,
-    overflow: 'hidden',
-    marginBottom: 18,
-    backgroundColor: dark.surface,
-  },
-
-  actionBtn: { marginBottom: 18 },
-
-  noRouteWarning: {
-    backgroundColor: 'rgba(239, 68, 68, 0.1)',
-    borderWidth: 1,
-    borderColor: dark.error,
+  assignmentBanner: {
+    backgroundColor: 'rgba(16,185,129,0.1)',
+    borderWidth: 1.5,
+    borderColor: dark.success,
     padding: 16,
-    borderRadius: 12,
+    borderRadius: 14,
+    marginBottom: 16,
+  },
+  bannerHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    marginBottom: 18,
+    gap: 8,
+    marginBottom: 6,
   },
-  noRouteText: { color: dark.error, fontWeight: '700', flex: 1 },
+  bannerTitle: {
+    color: dark.success,
+    fontWeight: '900',
+    fontSize: 16,
+  },
+  bannerText: {
+    color: dark.textPrimary,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  bannerRouteName: {
+    fontWeight: 'bold',
+    color: dark.success,
+  },
 
-  stopsCard: { marginBottom: 16 },
-  historyCard: { marginBottom: 32 },
-  sectionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
-  sectionTitle: { color: dark.textPrimary, fontWeight: '700' },
-  divider: { backgroundColor: dark.border, marginBottom: 12 },
-  stopRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 },
-  stopText: { color: dark.textSecondary },
-  emptyText: { color: dark.textMuted, fontStyle: 'italic', textAlign: 'center', paddingVertical: 8 },
+  chipsRow: { flexDirection: 'row', gap: 8, marginBottom: 14, flexWrap: 'wrap' },
+  chip:     { backgroundColor: 'transparent', borderWidth: 1.5 },
+
+  mapWrapper: { height: 260, borderRadius: 16, overflow: 'hidden', marginBottom: 16, backgroundColor: dark.surface },
+
+  actionBtn: { marginBottom: 18 },
+  noRoute:   { backgroundColor: 'rgba(239,68,68,.1)', borderWidth: 1, borderColor: dark.error, padding: 16, borderRadius: 12, flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 18 },
+  noRouteTxt:{ color: dark.error, fontWeight: '700', flex: 1 },
+
+  stopsCard:  { marginBottom: 32 },
+  sectionRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
+  sectionTitle:{ color: dark.textPrimary, fontWeight: '700' },
+  divider:    { backgroundColor: dark.border, marginBottom: 14 },
+  emptyTxt:   { color: dark.textMuted, fontStyle: 'italic', textAlign: 'center', paddingVertical: 8 },
+
+  /* Stop row */
+  stopRow:   { flexDirection: 'row', alignItems: 'flex-start', gap: 12, marginBottom: 0 },
+  spine:     { alignItems: 'center', width: 32 },
+  dot: {
+    width: 32, height: 32, borderRadius: 16,
+    borderWidth: 2, backgroundColor: dark.surface,
+    alignItems: 'center', justifyContent: 'center', zIndex: 1,
+  },
+  dotPulse:  { backgroundColor: dark.primary },
+  dotCheck:  { color: '#fff', fontWeight: '900', fontSize: 14 },
+  dotNum:    { fontSize: 12, fontWeight: '800' },
+  line:      { width: 2, flex: 1, minHeight: 30, marginVertical: 2 },
+
+  stopLabel:   { flex: 1, paddingTop: 4, paddingBottom: 16 },
+  stopName:    { color: dark.textPrimary, fontWeight: '600', fontSize: 14 },
+  visitedText: { color: dark.textMuted, textDecorationLine: 'line-through', fontWeight: '400' },
+  nextText:    { color: dark.primaryLight, fontWeight: '800' },
+  stopMeta:    { color: dark.textMuted, fontSize: 11, marginTop: 3 },
+
+  /* History rows */
+  historyRow:    { flexDirection: 'row', gap: 12, alignItems: 'flex-start', marginBottom: 16 },
+  historyDot:    { width: 28, height: 28, borderRadius: 14, backgroundColor: dark.surfaceVariant, borderWidth: 1.5, borderColor: dark.border, alignItems: 'center', justifyContent: 'center' },
+  historyDotTxt: { color: dark.success, fontWeight: '900', fontSize: 13 },
+  historyRoute:  { color: dark.textPrimary, fontWeight: '700', fontSize: 13 },
+  historyDate:   { color: dark.textMuted, fontSize: 11, marginTop: 2 },
+  historyMeta:   { color: dark.textSecondary, fontSize: 11 },
 });
