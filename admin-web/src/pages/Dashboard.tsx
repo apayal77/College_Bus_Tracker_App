@@ -153,7 +153,7 @@ const Dashboard = () => {
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
-        <div className="xl:col-span-2 card p-0 overflow-hidden min-h-[550px] border-slate-700/50 shadow-2xl relative">
+        <div className="xl:col-span-2 card p-0 overflow-hidden h-[350px] sm:h-[450px] md:h-[550px] border-slate-700/50 shadow-2xl relative">
           <div className="absolute top-4 right-4 z-[1000] flex items-center gap-2 bg-slate-900/90 backdrop-blur px-3 py-1.5 rounded-full border border-emerald-500/30 text-[10px] font-bold text-emerald-400 shadow-xl">
              <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"></span>
              LIVE TRACKING ACTIVE

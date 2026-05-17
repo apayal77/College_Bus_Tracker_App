@@ -121,7 +121,7 @@ const LiveTrackingMap: React.FC<LiveTrackingMapProps> = ({ buses, routesData = {
     : [16.65, 74.27];
 
   return (
-    <div className="h-[500px] w-full rounded-2xl overflow-hidden shadow-2xl border border-slate-800">
+    <div className="h-[350px] sm:h-[450px] md:h-[500px] w-full rounded-2xl overflow-hidden shadow-2xl border border-slate-800">
       <style>{`
         @keyframes pulse {
           0%, 100% { box-shadow: 0 0 0 0 rgba(245,158,11,.7); }

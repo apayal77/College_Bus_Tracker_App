@@ -110,14 +110,14 @@ const ManageUsers = ({ role }: { role: 'student' | 'driver' }) => {
 
   return (
     <div>
-      <header className="flex justify-between items-center mb-8">
+      <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
         <div>
           <h1 className="text-3xl font-bold text-white capitalize">Manage {role}s</h1>
           <p className="text-slate-400 mt-1">Add, update, or remove {role}s from the system.</p>
         </div>
         <button 
           onClick={handleOpenAddModal}
-          className="flex items-center gap-2 bg-blue-600 px-6 py-3 rounded-xl font-bold hover:bg-blue-500 transition-all shadow-lg shadow-blue-600/20"
+          className="flex items-center gap-2 bg-blue-600 px-6 py-3 rounded-xl font-bold hover:bg-blue-500 transition-all shadow-lg shadow-blue-600/20 w-full sm:w-auto justify-center"
         >
           <Plus size={20} />
           Add {role}
@@ -137,8 +137,8 @@ const ManageUsers = ({ role }: { role: 'student' | 'driver' }) => {
         </div>
       </div>
 
-      <div className="card p-0 overflow-hidden">
-        <table className="w-full text-left border-collapse">
+      <div className="card p-0 overflow-x-auto">
+        <table className="w-full text-left border-collapse min-w-[600px]">
           <thead>
             <tr className="bg-slate-800/50">
               <th className="px-6 py-4 text-slate-400 font-semibold uppercase text-xs">Name</th>

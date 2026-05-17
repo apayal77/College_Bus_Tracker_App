@@ -191,7 +191,7 @@ const LiveMonitor = () => {
           <LiveTrackingMap buses={activeBuses} routesData={allRoutesRef.current} />
         </div>
 
-        <div className="card h-[500px] flex flex-col bg-slate-900/50 border-slate-800">
+        <div className="card h-[300px] sm:h-[400px] xl:h-[500px] flex flex-col bg-slate-900/50 border-slate-800">
           <h2 className="text-lg font-bold mb-4 flex items-center gap-2">
             <Radio size={18} className="text-blue-500" />
             Route Status
@@ -232,7 +232,7 @@ const LiveMonitor = () => {
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
+          <table className="w-full text-left border-collapse min-w-[800px]">
             <thead>
               <tr className="border-b border-slate-800 text-slate-400 text-xs font-semibold uppercase tracking-wider">
                 <th className="py-3 px-4">Route</th>
